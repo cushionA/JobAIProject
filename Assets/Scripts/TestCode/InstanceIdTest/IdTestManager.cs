@@ -53,7 +53,7 @@ public class IdTestManager : MonoBehaviour
         {
             for ( int j = 0; j < objectCount; j++ )
             {
-                //              Addressables.InstantiateAsync(objReference[i]);
+                Addressables.InstantiateAsync(objReference[i]);
             }
         }
 
@@ -73,9 +73,22 @@ public class IdTestManager : MonoBehaviour
             ids[i] = new List<string>();
         }
 
+        int[] unMatchCount = new int[3];
+
         for ( int i = 0; i < objects.Length; i++ )
         {
-            ids[objects[i].objectType - 1].Add(objects[i].objectId.ToString());
+            int id = objects[i].objectId;
+            int hash = objects[i].objectHash;
+
+            if ( id != hash )
+            {
+                ids[objects[i].objectType - 1].Add($"結果：不一致 (ID：{id}) Hash：({hash})");
+                unMatchCount[objects[i].objectType - 1]++;
+            }
+            else
+            {
+                ids[objects[i].objectType - 1].Add($"結果：一致 ({id})");
+            }
         }
 
         for ( int i = 0; i < resultPath.Length; i++ )
@@ -88,7 +101,7 @@ public class IdTestManager : MonoBehaviour
             // ファイルに新しい行を追加する
             using ( StreamWriter sw = new StreamWriter(absolutePath, true) )
             {
-                sw.WriteLine($"オブジェクトタイプ：{i + 1}_{ids[i].Count}個");
+                sw.WriteLine($"オブジェクトタイプ：{i + 1}_{ids[i].Count}個 不一致：{unMatchCount[i]}個");
                 for ( int j = 0; j < ids[i].Count; j++ )
                 {
                     sw.WriteLine(ids[i][j]);

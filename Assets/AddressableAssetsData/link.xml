@@ -5,7 +5,9 @@
     <type fullname="AsyncTestStatus" preserve="all" />
     <type fullname="IdTestObject" preserve="all" />
     <type fullname="MTAsyncAI" preserve="all" />
+    <type fullname="MyDicTestComponent" preserve="all" />
     <type fullname="SyncAI" preserve="all" />
+    <type fullname="DicTestData" preserve="nothing" serialized="true" />
   </assembly>
   <assembly fullname="Unity.Addressables, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" preserve="all">
     <type fullname="UnityEngine.AddressableAssets.Addressables" preserve="all" />
@@ -19,7 +21,6 @@
   <assembly fullname="UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null">
     <type fullname="UnityEngine.GameObject" preserve="all" />
     <type fullname="UnityEngine.Material" preserve="all" />
-    <type fullname="UnityEngine.MonoBehaviour" preserve="all" />
     <type fullname="UnityEngine.Object" preserve="all" />
     <type fullname="UnityEngine.Shader" preserve="all" />
     <type fullname="UnityEngine.Sprite" preserve="all" />

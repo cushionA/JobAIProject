@@ -16,7 +16,7 @@ MonoBehaviour:
   m_GUID: ae493fc45c571774da5cfae690924430
   m_SerializeEntries:
   - m_GUID: 1777f5d9a7f784b44b430b50eb5b8256
-    m_Address: MyDicTest
+    m_Address: Assets/Prefab/TestPrefab/MyDicTest.prefab
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

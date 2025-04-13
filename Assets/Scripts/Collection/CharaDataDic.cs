@@ -8,25 +8,23 @@ using UnityEngine;
 using static Unity.Collections.AllocatorManager;
 
 /// <summary>
-/// ゲームオブジェクトのGetHashCode()とGetInstanceID()をハイブリッド方式で使用するデータ辞書
-/// GetHashCode()で高速検索し、GetInstanceID()で一意性を確保
+/// ゲームオブジェクトのGetHashCode()をキーとし、高効率に管理するデータ辞書
+/// Unityエンジン内部ではGetHashCode()がGetInstanceID()と同じ値を返すため、一意性が保証されます
 /// UnsafeListを使用してGC負荷を削減
 /// </summary>
-/// <typeparam name="T">格納するデータの型（unmanaged制約付き）</typeparam>
-public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
+/// <typeparam name="T">格納するデータの型（JobSystemを意識したunmanaged制約付き）</typeparam>
+public class CharaDataDic<T> : IDisposable where T : unmanaged
 {
-    // エントリ構造体 - キーと値とチェーン情報を格納
+    /// <summary>
+    /// エントリ構造体 - キーと値とチェーン情報を格納<br></br>
+    /// ハッシュコード→バケットID→エントリ→実際のインデックスという流れ。
+    /// </summary>
     private struct Entry
     {
         /// <summary>
-        /// ゲームオブジェクトのハッシュコード（主キー）
+        /// ゲームオブジェクトのハッシュコード（GetInstanceID()と同一）
         /// </summary>
         public int HashCode;
-
-        /// <summary>
-        /// ゲームオブジェクトのインスタンスID（衝突解決用補助キー）
-        /// </summary>
-        public int InstanceId;
 
         /// <summary>
         /// 値配列内のインデックス
@@ -34,7 +32,7 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         public int ValueIndex;
 
         /// <summary>
-        /// 同じバケット内の次のエントリへのインデックス
+        /// 同じバケット内の次のエントリへのインデックス。
         /// </summary>
         public int NextInBucket;
 
@@ -95,16 +93,17 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
     }
 
     /// <summary>
-    /// インデクサ - インスタンスIDからの値アクセス
+    /// インデクサ - ハッシュコード/インスタンスIDからの値アクセス
     /// </summary>
-    public T this[int instanceId]
+    public T this[int hashOrInstanceId]
     {
         get
         {
-            if ( TryGetValueByInstanceId(instanceId, out T value, out _) )
+            if ( TryGetValueByHash(hashOrInstanceId, out T value, out _) )
                 return value;
-            throw new KeyNotFoundException($"InstanceID {instanceId} not found in store");
+            throw new KeyNotFoundException($"HashCode/InstanceID {hashOrInstanceId} not found in store");
         }
+        set => AddByHash(hashOrInstanceId, value);
     }
 
     /// <summary>
@@ -169,15 +168,15 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         if ( obj == null )
             throw new ArgumentNullException(nameof(obj));
 
-        // ハイブリッドキーを使用
-        return AddInternal(obj.GetHashCode(), obj.GetInstanceID(), data);
+        // GetHashCode()を使用（GetInstanceID()と同じ値）
+        return AddByHash(obj.GetHashCode(), data);
     }
 
     /// <summary>
-    /// ハッシュコードとインスタンスIDを使ってデータを追加または更新
+    /// ハッシュコード/インスタンスIDとデータを追加または更新し、値のインデックスを返す
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int AddInternal(int hashCode, int instanceId, T data)
+    public int AddByHash(int hashCode, T data)
     {
         // 負荷係数チェック - 必要に応じてリサイズ
         if ( (_count - _freeCount) >= _entries.Length * LOAD_FACTOR )
@@ -193,8 +192,8 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         while ( entryIndex != -1 )
         {
             ref Entry entry = ref _entries.ElementAt(entryIndex);
-            // ハッシュコードが一致してもインスタンスIDも確認
-            if ( entry.HashCode == hashCode && entry.InstanceId == instanceId )
+            // ハッシュコードのみでチェック（GetInstanceID()と同じ値なので一意性が保証される）
+            if ( entry.HashCode == hashCode )
             {
                 // 既存エントリを更新
                 _values[entry.ValueIndex] = data;
@@ -230,7 +229,6 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         // 新しいエントリの設定
         Entry newEntry;
         newEntry.HashCode = hashCode;
-        newEntry.InstanceId = instanceId;
         newEntry.ValueIndex = newIndex;
         newEntry.NextInBucket = _buckets[bucketIndex];
         newEntry.IsOccupied = true;
@@ -330,37 +328,15 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
             return false;
         }
 
-        // ハイブリッドキーを使用
-        return TryGetValueByBoth(obj.GetHashCode(), obj.GetInstanceID(), out data, out index);
+        // GetHashCode()を使用（GetInstanceID()と同じ値）
+        return TryGetValueByHash(obj.GetHashCode(), out data, out index);
     }
 
     /// <summary>
-    /// インスタンスIDからデータと内部インデックスを取得（完全走査なので注意）
+    /// ハッシュコード/インスタンスIDからデータと内部インデックスを取得
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValueByInstanceId(int instanceId, out T data, out int index)
-    {
-        // インスタンスIDによる線形探索
-        for ( int i = 0; i < _count; i++ )
-        {
-            if ( _entries[i].IsOccupied && _entries[i].InstanceId == instanceId )
-            {
-                data = _values[_entries[i].ValueIndex];
-                index = _entries[i].ValueIndex;
-                return true;
-            }
-        }
-
-        data = default;
-        index = -1;
-        return false;
-    }
-
-    /// <summary>
-    /// ハッシュコードとインスタンスIDの両方を使ってデータと内部インデックスを取得
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool TryGetValueByBoth(int hashCode, int instanceId, out T data, out int index)
+    public bool TryGetValueByHash(int hashCode, out T data, out int index)
     {
         int bucketIndex = GetBucketIndex(hashCode);
         int entryIndex = _buckets[bucketIndex];
@@ -368,8 +344,7 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         while ( entryIndex != -1 )
         {
             ref Entry entry = ref _entries.ElementAt(entryIndex);
-            // ハッシュコードとインスタンスIDの両方をチェック
-            if ( entry.HashCode == hashCode && entry.InstanceId == instanceId )
+            if ( entry.HashCode == hashCode )
             {
                 data = _values[entry.ValueIndex];
                 index = entry.ValueIndex;
@@ -392,32 +367,15 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         if ( obj == null )
             return false;
 
-        // ハイブリッドキーを使用
-        return RemoveByBoth(obj.GetHashCode(), obj.GetInstanceID());
+        // GetHashCode()を使用（GetInstanceID()と同じ値）
+        return RemoveByHash(obj.GetHashCode());
     }
 
     /// <summary>
-    /// インスタンスIDに関連付けられたデータを削除
+    /// ハッシュコード/インスタンスIDに関連付けられたデータを削除
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool RemoveByInstanceId(int instanceId)
-    {
-        // まずインスタンスIDでエントリを見つける
-        for ( int i = 0; i < _count; i++ )
-        {
-            if ( _entries[i].IsOccupied && _entries[i].InstanceId == instanceId )
-            {
-                return RemoveByBoth(_entries[i].HashCode, instanceId);
-            }
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// ハッシュコードとインスタンスIDの両方を使ってデータを削除
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool RemoveByBoth(int hashCode, int instanceId)
+    public bool RemoveByHash(int hashCode)
     {
         if ( _count == 0 )
             return false;
@@ -430,8 +388,7 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         {
             ref Entry entry = ref _entries.ElementAt(entryIndex);
 
-            // ハッシュコードとインスタンスIDの両方をチェック
-            if ( entry.HashCode == hashCode && entry.InstanceId == instanceId )
+            if ( entry.HashCode == hashCode )
             {
                 // エントリをバケットリストから削除
                 if ( prevIndex != -1 )
@@ -489,6 +446,8 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         _freeListHead = -1;
     }
 
+    #region 内部データ管理処理
+
     /// <summary>
     /// 内部配列のサイズを変更
     /// </summary>
@@ -529,7 +488,9 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int GetBucketIndex(int hashCode)
     {
-        // 高速版の絶対値＋モジュロ
+        // ハッシュコードは負の値もあり得るので、絶対値を高速に取得
+        // hashCode & 0x7FFFFFFF が Math.Abs(hashCode) より高速
+        // 絶対値でModをとることで 0～要素数-1、の間のインデックスを取得できる
         return (hashCode & 0x7FFFFFFF) % _buckets.Length;
     }
 
@@ -605,8 +566,11 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         return true;
     }
 
+    #endregion 内部データ管理処理
+
     /// <summary>
-    /// すべての有効なエントリに対して処理を実行
+    /// すべての有効なエントリに対して処理を実行。<br></br>
+    /// IEnumerableの代わり
     /// </summary>
     public void ForEach(Action<int, T> action)
     {
@@ -622,18 +586,18 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         }
     }
 
+
     /// <summary>
-    /// 有効なインデックスのみを列挙
+    /// ジョブシステムでキャラクターデータを使用するためにリストを内部から取得する。<br></br>
+    /// 絶対にここで受け取ったリストをDisposeしてはならない。この自作Dictionaryはゲーム終了時に破棄する。<br></br>
+    /// また、意図せず参照が残らないようにローカル変数以外で受け取ってもならない。<br></br>
+    /// ReadOnlyにしたいところだけど、そうするといろいろ使いにくいから仕方ない。
     /// </summary>
-    public System.Collections.Generic.IEnumerable<int> GetValidIndices()
+    /// <returns></returns>
+    public UnsafeList<T> GetInternalListForJob()
     {
-        for ( int i = 0; i < _count; i++ )
-        {
-            if ( i < _entries.Length && _entries[i].IsOccupied )
-            {
-                yield return i;
-            }
-        }
+        // 内部リストを返す
+        return _values;
     }
 
     /// <summary>
@@ -651,8 +615,7 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         _isDisposed = true;
     }
 
-    public IEnumerator GetEnumerator()
-    {
-        throw new NotImplementedException();
-    }
+
+
+
 }

@@ -305,7 +305,7 @@ MonoBehaviour:
   - "Desktop\\qiita\u8A18\u4E8B\\GetInstanceIdTest\\TestResult\\Type1.txt"
   - "Desktop\\qiita\u8A18\u4E8B\\GetInstanceIdTest\\TestResult\\Type2.txt"
   - "Desktop\\qiita\u8A18\u4E8B\\GetInstanceIdTest\\TestResult\\Type3.txt"
-  objectCount: 30000
+  objectCount: 3000
 --- !u!4 &1978468665
 Transform:
   m_ObjectHideFlags: 0

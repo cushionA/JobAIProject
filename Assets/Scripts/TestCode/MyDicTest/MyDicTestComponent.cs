@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 /// <summary>
@@ -10,21 +11,17 @@ public class MyDicTestComponent : MonoBehaviour
     public DicTestData data;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
+    public void IDSet()
     {
-        // 適当な文字列を生成。
-        data.TestValue = $"{this.gameObject.name} {Time.deltaTime}".GetHashCode();
+        data.TestValue = UnityEngine.Random.Range(0, 100);
     }
 
-    // Update is called once per frame
-    void Update()
-    {
 
-    }
 }
-
+// DicTestDataクラスがない場合のダミー定義
+// 実際の環境ではすでに定義されているものを使用
+[System.Serializable]
 public struct DicTestData
 {
-    // 外部からこいつを取得してやる。
     public int TestValue;
 }

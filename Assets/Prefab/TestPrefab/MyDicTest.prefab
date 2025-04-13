@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 3036014218133777828}
-  - component: {fileID: 5396142978693546779}
+  - component: {fileID: 6058145360610494805}
   m_Layer: 0
   m_Name: MyDicTest
   m_TagString: Untagged
@@ -32,7 +32,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &5396142978693546779
+--- !u!114 &6058145360610494805
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -41,6 +41,8 @@ MonoBehaviour:
   m_GameObject: {fileID: 2349077733696906630}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 45358bdef56feb941935fff0532dd498, type: 3}
+  m_Script: {fileID: 11500000, guid: 3900e608adf1a7e489fc6046435832eb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  data:
+    TestValue: 0
