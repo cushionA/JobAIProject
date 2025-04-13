@@ -1,0 +1,28 @@
+{
+    "name": "MyCode",
+    "rootNamespace": "",
+    "references": [
+        "GUID:593a5b492d29ac6448b1ebf7f035ef33",
+        "GUID:029c1c1b674aaae47a6841a0b89ad80e",
+        "GUID:e0cd26848372d4e5c891c569017e11f1",
+        "GUID:5e96082520aa86a458e400b89afe93a4",
+        "GUID:64222b0d0713a412f92762e2fccd795a",
+        "GUID:ebbea1c70c20149eea64c53647a70872",
+        "GUID:2665a8d13d1b3f18800f46e256720795",
+        "GUID:f51ebe6a0ceec4240a699833d6309b23",
+        "GUID:9e24947de15b9834991c9d8411ea37cf",
+        "GUID:4f5c0c83dfd6a0743834baba2b4de79e",
+        "GUID:69448af7b92c7f342b298e06a37122aa",
+        "GUID:b46779583a009f04ba9f5f31d0e7e6ac",
+        "GUID:84651a3751eca9349aac36a66bba901b"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
