@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -9,44 +8,23 @@ using UnityEngine;
 using static Unity.Collections.AllocatorManager;
 
 /// <summary>
-/// ゲームオブジェクトのインスタンスIDをキーとし、高効率に管理するデータ辞書
-/// 素数サイズのバケットと単純モジュロ法でハッシュ衝突を最小化
+/// ゲームオブジェクトのGetHashCode()とGetInstanceID()をハイブリッド方式で使用するデータ辞書
+/// GetHashCode()で高速検索し、GetInstanceID()で一意性を確保
 /// UnsafeListを使用してGC負荷を削減
-/// ステージの変わり目とかでResizeして、大きくなりすぎてたら圧程度まで縮める？　それか未使用エントリが増え過ぎてたら
-/// 使った後は絶対にDisposeする
 /// </summary>
 /// <typeparam name="T">格納するデータの型（unmanaged制約付き）</typeparam>
 public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
 {
-
-    //    インスタンスIDの特徴分析
-
-    //基本的な特性:
-
-    //サンプルの全IDは負の値(100%)
-    //全IDが偶数(100%)
-    //値の範囲は -382662 ~ -310670 (範囲: 71992)
-    //下位の桁に特徴的なパターンがある（0, 2, 4, 6, 8の末尾が均等に分布）
-
-
-    //分布の特徴:
-    //最後の桁は0, 2, 4, 6, 8のみ（奇数が全く存在しない）
-    //下位3桁には特定の値が均等に出現（各72回）
-    //10000単位の区間でほぼ均等に分布している
-
-    //最適なハッシュ関数の選択
-    //テスト結果から、以下の順で各ハッシュ関数のパフォーマンスが高いことがわかりました：
-
-    //素数バケットサイズ + 単純モジュロ法:
-    //バケットサイズ8209の場合、衝突率8.79%で最も低い
-    //均等な分布を実現（使用率100%）
-
-
     // エントリ構造体 - キーと値とチェーン情報を格納
     private struct Entry
     {
         /// <summary>
-        /// ゲームオブジェクトのID（キー）
+        /// ゲームオブジェクトのハッシュコード（主キー）
+        /// </summary>
+        public int HashCode;
+
+        /// <summary>
+        /// ゲームオブジェクトのインスタンスID（衝突解決用補助キー）
         /// </summary>
         public int InstanceId;
 
@@ -106,10 +84,14 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
     {
         get
         {
+            if ( gameObject == null )
+                throw new ArgumentNullException(nameof(gameObject));
+
             if ( TryGetValue(gameObject, out T value, out _) )
                 return value;
             throw new KeyNotFoundException($"GameObject {gameObject.name} not found in store");
         }
+        set => Add(gameObject, value);
     }
 
     /// <summary>
@@ -119,14 +101,14 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
     {
         get
         {
-            if ( TryGetValue(instanceId, out T value, out _) )
+            if ( TryGetValueByInstanceId(instanceId, out T value, out _) )
                 return value;
             throw new KeyNotFoundException($"InstanceID {instanceId} not found in store");
         }
     }
 
     /// <summary>
-    /// インデクサ - 値インデックスからの直接アクセス（参照を返す）
+    /// インデクサ - 値インデックスからの直接アクセス
     /// </summary>
     public T this[int valueIndex, bool isValueIndex]
     {
@@ -187,14 +169,15 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         if ( obj == null )
             throw new ArgumentNullException(nameof(obj));
 
-        return Add(obj.GetInstanceID(), data);
+        // ハイブリッドキーを使用
+        return AddInternal(obj.GetHashCode(), obj.GetInstanceID(), data);
     }
 
     /// <summary>
-    /// インスタンスIDとデータを追加または更新し、値のインデックスを返す
+    /// ハッシュコードとインスタンスIDを使ってデータを追加または更新
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public int Add(int instanceId, T data)
+    private int AddInternal(int hashCode, int instanceId, T data)
     {
         // 負荷係数チェック - 必要に応じてリサイズ
         if ( (_count - _freeCount) >= _entries.Length * LOAD_FACTOR )
@@ -203,14 +186,15 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         }
 
         // バケットインデックスを計算（単純モジュロ法）
-        int bucketIndex = GetBucketIndex(instanceId);
+        int bucketIndex = GetBucketIndex(hashCode);
 
         // 同じキーが既に存在するか検索
         int entryIndex = _buckets[bucketIndex];
         while ( entryIndex != -1 )
         {
             ref Entry entry = ref _entries.ElementAt(entryIndex);
-            if ( entry.InstanceId == instanceId )
+            // ハッシュコードが一致してもインスタンスIDも確認
+            if ( entry.HashCode == hashCode && entry.InstanceId == instanceId )
             {
                 // 既存エントリを更新
                 _values[entry.ValueIndex] = data;
@@ -234,7 +218,7 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
             if ( _count == _entries.Length )
             {
                 Resize(_entries.Length * 2);
-                bucketIndex = GetBucketIndex(instanceId);
+                bucketIndex = GetBucketIndex(hashCode);
             }
             newIndex = _count;
             _count++;
@@ -245,6 +229,7 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
 
         // 新しいエントリの設定
         Entry newEntry;
+        newEntry.HashCode = hashCode;
         newEntry.InstanceId = instanceId;
         newEntry.ValueIndex = newIndex;
         newEntry.NextInBucket = _buckets[bucketIndex];
@@ -345,25 +330,46 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
             return false;
         }
 
-        return TryGetValue(obj.GetInstanceID(), out data, out index);
+        // ハイブリッドキーを使用
+        return TryGetValueByBoth(obj.GetHashCode(), obj.GetInstanceID(), out data, out index);
     }
 
     /// <summary>
-    /// インスタンスIDからデータと内部インデックスを取得
+    /// インスタンスIDからデータと内部インデックスを取得（完全走査なので注意）
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(int instanceId, out T data, out int index)
+    public bool TryGetValueByInstanceId(int instanceId, out T data, out int index)
     {
-        int bucketIndex = GetBucketIndex(instanceId);
+        // インスタンスIDによる線形探索
+        for ( int i = 0; i < _count; i++ )
+        {
+            if ( _entries[i].IsOccupied && _entries[i].InstanceId == instanceId )
+            {
+                data = _values[_entries[i].ValueIndex];
+                index = _entries[i].ValueIndex;
+                return true;
+            }
+        }
+
+        data = default;
+        index = -1;
+        return false;
+    }
+
+    /// <summary>
+    /// ハッシュコードとインスタンスIDの両方を使ってデータと内部インデックスを取得
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool TryGetValueByBoth(int hashCode, int instanceId, out T data, out int index)
+    {
+        int bucketIndex = GetBucketIndex(hashCode);
         int entryIndex = _buckets[bucketIndex];
 
         while ( entryIndex != -1 )
         {
-            // バケットから取り出したインデックスのエントリを取得。
             ref Entry entry = ref _entries.ElementAt(entryIndex);
-
-            // エントリに記録されたIDと同じなら同じアイテムだと判断する。
-            if ( entry.InstanceId == instanceId )
+            // ハッシュコードとインスタンスIDの両方をチェック
+            if ( entry.HashCode == hashCode && entry.InstanceId == instanceId )
             {
                 data = _values[entry.ValueIndex];
                 index = entry.ValueIndex;
@@ -378,15 +384,45 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
     }
 
     /// <summary>
+    /// ゲームオブジェクトに関連付けられたデータを削除
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool Remove(GameObject obj)
+    {
+        if ( obj == null )
+            return false;
+
+        // ハイブリッドキーを使用
+        return RemoveByBoth(obj.GetHashCode(), obj.GetInstanceID());
+    }
+
+    /// <summary>
     /// インスタンスIDに関連付けられたデータを削除
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool Remove(int instanceId)
+    public bool RemoveByInstanceId(int instanceId)
+    {
+        // まずインスタンスIDでエントリを見つける
+        for ( int i = 0; i < _count; i++ )
+        {
+            if ( _entries[i].IsOccupied && _entries[i].InstanceId == instanceId )
+            {
+                return RemoveByBoth(_entries[i].HashCode, instanceId);
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// ハッシュコードとインスタンスIDの両方を使ってデータを削除
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool RemoveByBoth(int hashCode, int instanceId)
     {
         if ( _count == 0 )
             return false;
 
-        int bucketIndex = GetBucketIndex(instanceId);
+        int bucketIndex = GetBucketIndex(hashCode);
         int entryIndex = _buckets[bucketIndex];
         int prevIndex = -1;
 
@@ -394,7 +430,8 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         {
             ref Entry entry = ref _entries.ElementAt(entryIndex);
 
-            if ( entry.InstanceId == instanceId )
+            // ハッシュコードとインスタンスIDの両方をチェック
+            if ( entry.HashCode == hashCode && entry.InstanceId == instanceId )
             {
                 // エントリをバケットリストから削除
                 if ( prevIndex != -1 )
@@ -426,15 +463,6 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// ゲームオブジェクトに関連付けられたデータを削除
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool Remove(GameObject obj)
-    {
-        return obj != null && Remove(obj.GetInstanceID());
     }
 
     /// <summary>
@@ -470,12 +498,10 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
         int newPrimeSize = GetNextPrimeSize(newCapacity);
 
         // 各コレクションのサイズを拡張（既存データを保持）
-        // サイズを変更し、新規確保メモリは初期化する。
         _entries.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
         _values.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
         _indexForValue.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
 
-        // バケットリストを破棄して新しいサイズで再作成
         // バケットリストを新しいサイズで作り直し、-1で初期化
         _buckets.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
 
@@ -490,7 +516,7 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
             ref Entry entry = ref _entries.ElementAt(i);
             if ( entry.IsOccupied )
             {
-                int bucket = Math.Abs(entry.InstanceId) % newPrimeSize;
+                int bucket = GetBucketIndex(entry.HashCode);
                 entry.NextInBucket = _buckets[bucket];
                 _buckets[bucket] = i;
             }
@@ -498,12 +524,13 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
     }
 
     /// <summary>
-    /// インスタンスIDからバケットインデックスを取得（単純モジュロ法）
+    /// ハッシュコードからバケットインデックスを取得（単純モジュロ法）
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int GetBucketIndex(int instanceId)
+    private int GetBucketIndex(int hashCode)
     {
-        return ((instanceId >> 31) & instanceId ^ instanceId) % _buckets.Length;
+        // 高速版の絶対値＋モジュロ
+        return (hashCode & 0x7FFFFFFF) % _buckets.Length;
     }
 
     /// <summary>
@@ -511,15 +538,30 @@ public class CharaDataDic<T> : IDisposable, IEnumerable where T : unmanaged
     /// </summary>
     private int GetNextPrimeSize(int minSize)
     {
-        // サイズが十分小さければ素数テーブルから探す
-        foreach ( int prime in PrimeSizes )
-        {
-            if ( prime >= minSize )
-                return prime;
-        }
+        // バイナリサーチで素数テーブルから適切な値を探す
+        int index = Array.BinarySearch(PrimeSizes, minSize);
 
-        // テーブルに十分な大きさの素数がなければ計算
-        return CalculateNextPrime(minSize);
+        if ( index >= 0 )
+        {
+            // ぴったり一致する素数が見つかった
+            return PrimeSizes[index];
+        }
+        else
+        {
+            // 一致する値がない場合、~index は挿入すべき位置を表す
+            int insertIndex = ~index;
+
+            if ( insertIndex < PrimeSizes.Length )
+            {
+                // テーブル内の次に大きい素数を返す
+                return PrimeSizes[insertIndex];
+            }
+            else
+            {
+                // テーブル内の最大値より大きい場合は計算する
+                return CalculateNextPrime(minSize);
+            }
+        }
     }
 
     /// <summary>

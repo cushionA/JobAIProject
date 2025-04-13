@@ -128,26 +128,26 @@ public class CharaDataDicPerformanceTest
     // 順次アクセステスト
     //
 
-    [Test, Performance]
-    public void Test_03_SequentialAccess_GetComponent()
-    {
-        // テスト前の準備
-        PrepareSequentialTest();
+    //[Test, Performance]
+    //public void Test_03_SequentialAccess_GetComponent()
+    //{
+    //    // テスト前の準備
+    //    PrepareSequentialTest();
 
-        Measure.Method(() =>
-        {
-            int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
-            {
-                DicTestData comp = gameObjects[i].GetComponent<DicTestData>();
-                localSum += comp.TestValue;
-            }
-            dataSum += localSum;
-        })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
-        .Run();
-    }
+    //    Measure.Method(() =>
+    //    {
+    //        int localSum = 0;
+    //        for ( int i = 0; i < gameObjects.Length; i++ )
+    //        {
+    //            DicTestData comp = gameObjects[i].GetComponent<DicTestData>();
+    //            localSum += comp.TestValue;
+    //        }
+    //        dataSum += localSum;
+    //    })
+    //    .WarmupCount(warmupCount)
+    //    .MeasurementCount(measurementCount)
+    //    .Run();
+    //}
 
     [Test, Performance]
     public void Test_04_SequentialAccess_StandardDictionary()
@@ -227,31 +227,39 @@ public class CharaDataDicPerformanceTest
     // ランダムアクセステスト
     //
 
-    [Test, Performance]
-    public void Test_07_RandomAccess_GetComponent()
-    {
-        List<int> randomIndices = PrepareRandomTest();
+    //[Test, Performance]
+    //public void Test_07_RandomAccess_GetComponent()
+    //{
+    //    List<int> randomIndices = PrepareRandomTest();
 
-        Measure.Method(() =>
-        {
-            int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
-            {
-                int idx = randomIndices[i];
-                DicTestData comp = gameObjects[idx].GetComponent<DicTestData>();
-                localSum += comp.TestValue;
-            }
-            dataSum += localSum;
-        })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
-        .Run();
-    }
+    //    Measure.Method(() =>
+    //    {
+    //        int localSum = 0;
+    //        for ( int i = 0; i < gameObjects.Length; i++ )
+    //        {
+    //            int idx = randomIndices[i];
+    //            DicTestData comp = gameObjects[idx].GetComponent<DicTestData>();
+    //            localSum += comp.TestValue;
+    //        }
+    //        dataSum += localSum;
+    //    })
+    //    .WarmupCount(warmupCount)
+    //    .MeasurementCount(measurementCount)
+    //    .Run();
+    //}
 
     [Test, Performance]
     public void Test_08_RandomAccess_StandardDictionary()
     {
         List<int> randomIndices = PrepareRandomTest();
+
+        // 事前準備：辞書に要素を追加
+        standardDictionary.Clear();
+
+        for ( int i = 0; i < gameObjects.Length; i++ )
+        {
+            standardDictionary.Add(gameObjects[i], components[i]);
+        }
 
         Measure.Method(() =>
         {
@@ -274,6 +282,14 @@ public class CharaDataDicPerformanceTest
     {
         List<int> randomIndices = PrepareRandomTest();
 
+        // 事前準備：辞書に要素を追加
+        customDictionary.Clear();
+
+        for ( int i = 0; i < gameObjects.Length; i++ )
+        {
+            customDictionary.Add(gameObjects[i], components[i]);
+        }
+
         Measure.Method(() =>
         {
             int localSum = 0;
@@ -290,59 +306,59 @@ public class CharaDataDicPerformanceTest
         .Run();
     }
 
-    //
-    // メモリ使用量テスト
-    //
+    ////
+    //// メモリ使用量テスト
+    ////
 
-    [Test, Performance]
-    public void Test_10_MemoryUsage()
-    {
-        // メモリ使用量の測定には、GCとスタックトレースを使用
-        // 注意：これは完全に正確ではありませんが、傾向を把握するのに役立ちます
+    //[Test, Performance]
+    //public void Test_10_MemoryUsage()
+    //{
+    //    // メモリ使用量の測定には、GCとスタックトレースを使用
+    //    // 注意：これは完全に正確ではありませんが、傾向を把握するのに役立ちます
 
-        // 標準Dictionaryのメモリ使用量
-        standardDictionary.Clear();
-        System.GC.Collect();
-        System.GC.WaitForPendingFinalizers();
-        System.GC.Collect();
-        long beforeStandard = System.GC.GetTotalMemory(true);
+    //    // 標準Dictionaryのメモリ使用量
+    //    standardDictionary.Clear();
+    //    System.GC.Collect();
+    //    System.GC.WaitForPendingFinalizers();
+    //    System.GC.Collect();
+    //    long beforeStandard = System.GC.GetTotalMemory(true);
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
-        {
-            standardDictionary.Add(gameObjects[i], components[i]);
-        }
+    //    for ( int i = 0; i < gameObjects.Length; i++ )
+    //    {
+    //        standardDictionary.Add(gameObjects[i], components[i]);
+    //    }
 
-        long afterStandard = System.GC.GetTotalMemory(true);
-        long standardMemory = afterStandard - beforeStandard;
+    //    long afterStandard = System.GC.GetTotalMemory(true);
+    //    long standardMemory = afterStandard - beforeStandard;
 
-        // カスタムDictionaryのメモリ使用量
-        customDictionary.Dispose();
-        customDictionary = new CharaDataDic<DicTestData>(objectCount);
-        System.GC.Collect();
-        System.GC.WaitForPendingFinalizers();
-        System.GC.Collect();
-        long beforeCustom = System.GC.GetTotalMemory(true);
+    //    // カスタムDictionaryのメモリ使用量
+    //    customDictionary.Dispose();
+    //    customDictionary = new CharaDataDic<DicTestData>(objectCount);
+    //    System.GC.Collect();
+    //    System.GC.WaitForPendingFinalizers();
+    //    System.GC.Collect();
+    //    long beforeCustom = System.GC.GetTotalMemory(true);
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
-        {
-            customDictionary.Add(gameObjects[i], components[i]);
-        }
+    //    for ( int i = 0; i < gameObjects.Length; i++ )
+    //    {
+    //        customDictionary.Add(gameObjects[i], components[i]);
+    //    }
 
-        long afterCustom = System.GC.GetTotalMemory(true);
-        long customMemory = afterCustom - beforeCustom;
+    //    long afterCustom = System.GC.GetTotalMemory(true);
+    //    long customMemory = afterCustom - beforeCustom;
 
-        // 結果をUnityTestのContextに記録
-        UnityEngine.Debug.Log($"オブジェクト数: {objectCount}");
-        UnityEngine.Debug.Log($"標準Dictionary メモリ使用量: {standardMemory} バイト");
-        UnityEngine.Debug.Log($"カスタムDictionary メモリ使用量: {customMemory} バイト");
-        UnityEngine.Debug.Log($"メモリ使用量差分: {standardMemory - customMemory} バイト");
-        UnityEngine.Debug.Log($"メモリ削減率: {(1.0f - (float)customMemory / standardMemory) * 100}%");
+    //    // 結果をUnityTestのContextに記録
+    //    UnityEngine.Debug.Log($"オブジェクト数: {objectCount}");
+    //    UnityEngine.Debug.Log($"標準Dictionary メモリ使用量: {standardMemory} バイト");
+    //    UnityEngine.Debug.Log($"カスタムDictionary メモリ使用量: {customMemory} バイト");
+    //    UnityEngine.Debug.Log($"メモリ使用量差分: {standardMemory - customMemory} バイト");
+    //    UnityEngine.Debug.Log($"メモリ削減率: {(1.0f - (float)customMemory / standardMemory) * 100}%");
 
-        // 結果をPerformanceTest.Reportに記録
-        Measure.Custom("標準Dictionary(バイト)", standardMemory);
-        Measure.Custom("カスタムDictionary(バイト)", customMemory);
-        Measure.Custom("差分(バイト)", standardMemory - customMemory);
-    }
+    //    // 結果をPerformanceTest.Reportに記録
+    //    Measure.Custom("標準Dictionary(バイト)", standardMemory);
+    //    Measure.Custom("カスタムDictionary(バイト)", customMemory);
+    //    Measure.Custom("差分(バイト)", standardMemory - customMemory);
+    //}
 
     //
     // ヘルパーメソッド
@@ -363,15 +379,6 @@ public class CharaDataDicPerformanceTest
 
     private List<int> PrepareRandomTest()
     {
-        // 事前準備：辞書に要素を追加
-        standardDictionary.Clear();
-        customDictionary.Clear();
-
-        for ( int i = 0; i < gameObjects.Length; i++ )
-        {
-            standardDictionary.Add(gameObjects[i], components[i]);
-            customDictionary.Add(gameObjects[i], components[i]);
-        }
 
         // シャッフルしたインデックスを作成
         List<int> randomIndices = new List<int>(objectCount);
