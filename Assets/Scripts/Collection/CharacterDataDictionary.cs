@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data.SqlTypes;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -11,9 +13,13 @@ using static Unity.Collections.AllocatorManager;
 /// ゲームオブジェクトのGetHashCode()をキーとし、高効率に管理するデータ辞書
 /// UnityではGetHashCode()がGetInstanceID()と同じ値を返すため、一意性が保証されている。
 /// UnsafeListを使用してGC負荷を削減
+/// 正直T2はジェネリック型にする意味あんまりない（キャラクターコントローラーの型だから）いずれその方針で最適化する
 /// </summary>
-/// <typeparam name="T">格納するデータの型（JobSystemを意識したunmanaged制約付き）</typeparam>
-public class CharaDataDic<T> : IDisposable where T : unmanaged
+/// <typeparam name="T1">格納する主データの型（JobSystemを意識したunmanaged制約付き）</typeparam>
+/// <typeparam name="T2">格納する副データの型（JobSystemを意識したunmanaged制約付き）</typeparam>
+public class CharacterDataDictionary<T1, T2> : IDisposable
+    where T1 : unmanaged
+    where T2 : class
 {
     /// <summary>
     /// エントリ構造体 - キーと値とチェーン情報を格納<br></br>
@@ -45,7 +51,8 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     // 内部データ構造（UnsafeListベース）
     private UnsafeList<int> _buckets;           // バケット配列（各要素はエントリへのインデックス、-1は空）
     private UnsafeList<Entry> _entries;         // エントリの配列
-    private UnsafeList<T> _values;              // 実際のデータを格納する配列
+    private UnsafeList<T1> _values1;            // 実際のデータT1を格納する配列
+    private T2[] _values2;                      // 実際のデータT2を格納する配列（managed型のため通常の配列）
     private UnsafeList<int> _indexForValue;     // 値インデックス→エントリインデックスの逆引き
 
     private int _count;                  // 使用中のエントリ数
@@ -75,41 +82,45 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     /// </summary>
     public int Capacity => _entries.Length;
 
+    #region T1インデクサ
+
     /// <summary>
-    /// インデクサ - ゲームオブジェクトからの値アクセス
+    /// インデクサ - ゲームオブジェクトからの値アクセス (T1)
     /// </summary>
-    public T this[GameObject gameObject]
+    public T1 this[GameObject gameObject]
     {
         get
         {
             if ( gameObject == null )
                 throw new ArgumentNullException(nameof(gameObject));
 
-            if ( TryGetValue(gameObject, out T value, out _) )
-                return value;
+            if ( TryGetValue(gameObject, out T1 value1, out _) )
+                return value1;
             throw new KeyNotFoundException($"GameObject {gameObject.name} not found in store");
         }
-        set => Add(gameObject, value);
+        set => Add(gameObject, value);  // このインデクサからの追加はT1のみの追加になる点に注意
     }
 
     /// <summary>
-    /// インデクサ - ハッシュコード/インスタンスIDからの値アクセス
+    /// インデクサ - ハッシュコード/インスタンスIDからの値アクセス (T1)
     /// </summary>
-    public T this[int hashOrInstanceId]
+    public T1 this[int hashOrInstanceId]
     {
         get
         {
-            if ( TryGetValueByHash(hashOrInstanceId, out T value, out _) )
-                return value;
+            if ( TryGetValueByHash(hashOrInstanceId, out T1 value1, out _) )
+                return value1;
             throw new KeyNotFoundException($"HashCode/InstanceID {hashOrInstanceId} not found in store");
         }
-        set => AddByHash(hashOrInstanceId, value);
+        set => AddByHash(hashOrInstanceId, value);  // このインデクサからの追加はT1のみの追加になる点に注意
     }
 
     /// <summary>
-    /// インデクサ - 値インデックスからの直接アクセス
+    /// インデクサ - 値インデックスからの直接アクセス (T1)
     /// </summary>
-    public T this[int valueIndex, bool isValueIndex]
+
+
+    public T1 this[int valueIndex, bool isValueIndex]
     {
         get
         {
@@ -119,16 +130,19 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
             if ( valueIndex < 0 || valueIndex >= _count || !IsValidIndex(valueIndex) )
                 throw new ArgumentOutOfRangeException(nameof(valueIndex));
 
-            return _values[valueIndex];
+            return _values1[valueIndex];
         }
     }
+
+    #endregion
+
 
     /// <summary>
     /// コンストラクタ
     /// </summary>
     /// <param name="capacity">初期容量（素数に調整されます）</param>
     /// <param name="allocator">メモリアロケータ（デフォルトはPersistent）</param>
-    public CharaDataDic(int capacity = DEFAULT_CAPACITY, Allocator allocator = Allocator.Persistent)
+    public CharacterDataDictionary(int capacity = DEFAULT_CAPACITY, Allocator allocator = Allocator.Persistent)
     {
         // アロケータ保存
         _allocator = allocator;
@@ -139,7 +153,8 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
         // UnsafeListの初期化
         _buckets = new UnsafeList<int>(primeCapacity, allocator);
         _entries = new UnsafeList<Entry>(primeCapacity, allocator);
-        _values = new UnsafeList<T>(primeCapacity, allocator);
+        _values1 = new UnsafeList<T1>(primeCapacity, allocator);
+        _values2 = new T2[primeCapacity]; // managed型のため通常の配列を使用
         _indexForValue = new UnsafeList<int>(primeCapacity, allocator);
 
         // バケットリストの容量確保と-1で初期化
@@ -151,7 +166,8 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
 
         // 他のリストの容量を確保
         _entries.Capacity = primeCapacity;
-        _values.Capacity = primeCapacity;
+        _values1.Capacity = primeCapacity;
+        // _values2は既に配列で初期化済み
         _indexForValue.Capacity = primeCapacity;
 
         _freeListHead = -1;
@@ -160,10 +176,10 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     }
 
     /// <summary>
-    /// ゲームオブジェクトとデータを追加または更新
+    /// ゲームオブジェクトとデータを追加または更新 (T1のみ)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public int Add(GameObject obj, T data)
+    public int Add(GameObject obj, T1 data)
     {
         if ( obj == null )
             throw new ArgumentNullException(nameof(obj));
@@ -173,10 +189,33 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     }
 
     /// <summary>
-    /// ハッシュコード/インスタンスIDとデータを追加または更新し、値のインデックスを返す
+    /// ゲームオブジェクトとデータを追加または更新 (T1とT2)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public int AddByHash(int hashCode, T data)
+    public int Add(GameObject obj, T1 data1, T2 data2)
+    {
+        if ( obj == null )
+            throw new ArgumentNullException(nameof(obj));
+
+        // GetHashCode()を使用（GetInstanceID()と同じ値）
+        return AddByHash(obj.GetHashCode(), data1, data2);
+    }
+
+    /// <summary>
+    /// ハッシュコード/インスタンスIDとデータを追加または更新し、値のインデックスを返す (T1のみ)
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int AddByHash(int hashCode, T1 data)
+    {
+        // T2にはデフォルト値を設定
+        return AddByHash(hashCode, data, default);
+    }
+
+    /// <summary>
+    /// ハッシュコード/インスタンスIDとデータを追加または更新し、値のインデックスを返す (T1とT2)
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int AddByHash(int hashCode, T1 data1, T2 data2)
     {
         // 負荷係数チェック - 必要に応じてリサイズ
         if ( (_count - _freeCount) >= _entries.Length * LOAD_FACTOR )
@@ -196,7 +235,8 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
             if ( entry.HashCode == hashCode )
             {
                 // 既存エントリを更新
-                _values[entry.ValueIndex] = data;
+                _values1[entry.ValueIndex] = data1;
+                _values2[entry.ValueIndex] = data2;
                 return entry.ValueIndex;
             }
 
@@ -245,14 +285,17 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
             _entries.Add(newEntry);
         }
 
-        if ( newIndex < _values.Length )
+        if ( newIndex < _values1.Length )
         {
-            _values[newIndex] = data;
+            _values1[newIndex] = data1;
         }
         else
         {
-            _values.Add(data);
+            _values1.Add(data1);
         }
+
+        // T2はmanaged型の配列なので単純に代入
+        _values2[newIndex] = data2;
 
         if ( newIndex < _indexForValue.Length )
         {
@@ -281,10 +324,18 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
             _entries.Capacity = newCapacity;
         }
 
-        if ( _values.Capacity <= index )
+        if ( _values1.Capacity <= index )
         {
-            int newCapacity = Math.Max(_values.Capacity * 2, index + 1);
-            _values.Capacity = newCapacity;
+            int newCapacity = Math.Max(_values1.Capacity * 2, index + 1);
+            _values1.Capacity = newCapacity;
+        }
+
+        if ( _values2.Length <= index )
+        {
+            int newCapacity = Math.Max(_values2.Length * 2, index + 1);
+            T2[] newArray = new T2[newCapacity];
+            Array.Copy(_values2, newArray, _values2.Length);
+            _values2 = newArray;
         }
 
         if ( _indexForValue.Capacity <= index )
@@ -304,41 +355,104 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     }
 
     /// <summary>
-    /// インデックスから直接データを取得（参照を返す）
+    /// インデックスから直接データT1を取得（参照を返す）
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ref T GetDataByIndex(int index)
+    public ref T1 GetData1ByIndex(int index)
     {
         if ( !IsValidIndex(index) )
         {
             throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry");
         }
 
-        return ref _values.ElementAt(index);
+        return ref _values1.ElementAt(index);
     }
 
     /// <summary>
-    /// ゲームオブジェクトからデータと内部インデックスを取得
+    /// インデックスから直接データT2を取得
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(GameObject obj, out T data, out int index)
+    public T2 GetData2ByIndex(int index)
+    {
+        if ( !IsValidIndex(index) )
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry");
+        }
+
+        return _values2[index];
+    }
+
+    /// <summary>
+    /// インデックスから直接データT2を設定
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void SetData2ByIndex(int index, T2 value)
+    {
+        if ( !IsValidIndex(index) )
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry");
+        }
+
+        _values2[index] = value;
+    }
+
+    /// <summary>
+    /// ゲームオブジェクトからデータT1, T2と内部インデックスを取得
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryGetValue(GameObject obj, out T1 data1, out T2 data2, out int index)
     {
         if ( obj == null )
         {
-            data = default;
+            data1 = default;
+            data2 = null;
             index = -1;
             return false;
         }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return TryGetValueByHash(obj.GetHashCode(), out data, out index);
+        return TryGetValueByHash(obj.GetHashCode(), out data1, out data2, out index);
     }
 
     /// <summary>
-    /// ハッシュコード/インスタンスIDからデータと内部インデックスを取得
+    /// ゲームオブジェクトからデータT1と内部インデックスを取得
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValueByHash(int hashCode, out T data, out int index)
+    public bool TryGetValue(GameObject obj, out T1 data1, out int index)
+    {
+        if ( obj == null )
+        {
+            data1 = default;
+            index = -1;
+            return false;
+        }
+
+        // GetHashCode()を使用（GetInstanceID()と同じ値）
+        return TryGetValueByHash(obj.GetHashCode(), out data1, out index);
+    }
+
+    /// <summary>
+    /// ゲームオブジェクトからデータT2と内部インデックスを取得
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryGetValue(GameObject obj, out T2 data2, out int index)
+    {
+        if ( obj == null )
+        {
+            data2 = null;
+            index = -1;
+            return false;
+        }
+
+        // GetHashCode()を使用（GetInstanceID()と同じ値）
+        return TryGetValueByHash(obj.GetHashCode(), out data2, out index);
+    }
+
+    /// <summary>
+    /// ハッシュコード/インスタンスIDからデータT1, T2と内部インデックスを取得
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryGetValueByHash(int hashCode, out T1 data1, out T2 data2, out int index)
     {
         int bucketIndex = GetBucketIndex(hashCode);
         int entryIndex = _buckets[bucketIndex];
@@ -348,14 +462,68 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
             ref Entry entry = ref _entries.ElementAt(entryIndex);
             if ( entry.HashCode == hashCode )
             {
-                data = _values[entry.ValueIndex];
+                data1 = _values1[entry.ValueIndex];
+                data2 = _values2[entry.ValueIndex];
                 index = entry.ValueIndex;
                 return true;
             }
             entryIndex = entry.NextInBucket;
         }
 
-        data = default;
+        data1 = default;
+        data2 = null;
+        index = -1;
+        return false;
+    }
+
+    /// <summary>
+    /// ハッシュコード/インスタンスIDからデータT1と内部インデックスを取得
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryGetValueByHash(int hashCode, out T1 data1, out int index)
+    {
+        int bucketIndex = GetBucketIndex(hashCode);
+        int entryIndex = _buckets[bucketIndex];
+
+        while ( entryIndex != -1 )
+        {
+            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            if ( entry.HashCode == hashCode )
+            {
+                data1 = _values1[entry.ValueIndex];
+                index = entry.ValueIndex;
+                return true;
+            }
+            entryIndex = entry.NextInBucket;
+        }
+
+        data1 = default;
+        index = -1;
+        return false;
+    }
+
+    /// <summary>
+    /// ハッシュコード/インスタンスIDからT2と内部インデックスを取得
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryGetValueByHash(int hashCode, out T2 data2, out int index)
+    {
+        int bucketIndex = GetBucketIndex(hashCode);
+        int entryIndex = _buckets[bucketIndex];
+
+        while ( entryIndex != -1 )
+        {
+            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            if ( entry.HashCode == hashCode )
+            {
+                data2 = _values2[entry.ValueIndex];
+                index = entry.ValueIndex;
+                return true;
+            }
+            entryIndex = entry.NextInBucket;
+        }
+
+        data2 = null;
         index = -1;
         return false;
     }
@@ -440,7 +608,7 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
 
         // UnsafeListをクリア
         _entries.Clear();
-        _values.Clear();
+        _values1.Clear();
         _indexForValue.Clear();
 
         _count = 0;
@@ -460,7 +628,14 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
 
         // 各コレクションのサイズを拡張（既存データを保持）
         _entries.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
-        _values.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
+        _values1.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
+
+        // managed型配列のリサイズ
+        if ( _values2.Length < newPrimeSize )
+        {
+            Array.Resize(ref _values2, newPrimeSize);
+        }
+
         _indexForValue.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
 
         // バケットリストを新しいサイズで作り直し、-1で初期化
@@ -571,10 +746,44 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     #endregion 内部データ管理処理
 
     /// <summary>
-    /// すべての有効なエントリに対して処理を実行。<br></br>
+    /// 指定したゲームオブジェクトのキーがディクショナリに存在するかどうかを確認
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool ContainsKey(GameObject obj)
+    {
+        if ( obj == null )
+            return false;
+
+        return ContainsKeyByHash(obj.GetHashCode());
+    }
+
+    /// <summary>
+    /// 指定したハッシュコード/インスタンスIDがディクショナリに存在するかどうかを確認
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool ContainsKeyByHash(int hashCode)
+    {
+        int bucketIndex = GetBucketIndex(hashCode);
+        int entryIndex = _buckets[bucketIndex];
+
+        while ( entryIndex != -1 )
+        {
+            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            if ( entry.HashCode == hashCode )
+            {
+                return true;
+            }
+            entryIndex = entry.NextInBucket;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// すべての有効なエントリに対して処理を実行 (T1のみ)。<br></br>
     /// IEnumerableの代わり
     /// </summary>
-    public void ForEach(Action<int, T> action)
+    public void ForEach(Action<int, T1> action)
     {
         if ( action == null )
             throw new ArgumentNullException(nameof(action));
@@ -583,23 +792,52 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
         {
             if ( i < _entries.Length && _entries[i].IsOccupied )
             {
-                action(i, _values.ElementAt(i));
+                action(i, _values1.ElementAt(i));
             }
         }
     }
 
+    /// <summary>
+    /// すべての有効なエントリに対して処理を実行 (T1とT2)。<br></br>
+    /// IEnumerableの代わり
+    /// </summary>
+    public void ForEach(Action<int, T1, T2> action)
+    {
+        if ( action == null )
+            throw new ArgumentNullException(nameof(action));
+
+        for ( int i = 0; i < _count; i++ )
+        {
+            if ( i < _entries.Length && _entries[i].IsOccupied )
+            {
+                action(i, _values1.ElementAt(i), _values2.ElementAt(i));
+            }
+        }
+    }
 
     /// <summary>
-    /// ジョブシステムでキャラクターデータを使用するためにリストを内部から取得する。<br></br>
+    /// ジョブシステムでキャラクターデータT1を使用するためにリストを内部から取得する。<br></br>
     /// 絶対にここで受け取ったリストをDisposeしてはならない。この自作Dictionaryはゲーム終了時に破棄する。<br></br>
     /// また、意図せず参照が残らないようにローカル変数以外で受け取ってもだめ。<br></br>
     /// ReadOnlyにしたいところだけど、そうするといろいろ使いにくいから仕方ない。
     /// </summary>
-    /// <returns></returns>
-    public UnsafeList<T> GetInternalListForJob()
+    /// <returns>T1データのUnsafeList</returns>
+    public UnsafeList<T1> GetInternalList1ForJob()
     {
         // 内部リストを返す
-        return _values;
+        return _values1;
+    }
+
+    /// <summary>
+    /// キャラクターデータT2を使用するために内部配列への参照を取得する。<br></br>
+    /// T2がmanaged型のため、JobSystemでは使用できない可能性があることに注意。<br></br>
+    /// ReadOnlyにしたいところだけど、そうするといろいろ使いにくいから仕方ない。
+    /// </summary>
+    /// <returns>T2データのSpan</returns>
+    public Span<T2> GetInternalArray2()
+    {
+        // 内部配列を返す
+        return _values2.AsSpan();
     }
 
     /// <summary>
@@ -612,12 +850,11 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
 
         _buckets.Dispose();
         _entries.Dispose();
-        _values.Dispose();
+        _values1.Dispose();
+        // _values2はmanaged型の配列なので参照だけ切る。
+        _values2 = null;
+
         _indexForValue.Dispose();
         _isDisposed = true;
     }
-
-
-
-
 }
