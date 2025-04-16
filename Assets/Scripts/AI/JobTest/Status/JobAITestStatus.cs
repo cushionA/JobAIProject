@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using static JTestAIBase;
@@ -18,17 +19,32 @@ public class JobAITestStatus : ScriptableObject
     /// 対象が自分、味方、敵のどれかという区分と否定（以上が以内になったり）フラグの組み合わせで表現
     /// 行動のバリエーションはモードチェンジ、攻撃、回復などの具体的行動
     /// </summary>
-    public enum MoveJudgeCondition
+    public enum ActJudgeCondition
     {
+        指定のヘイト値の敵がいる時,
         対象が一定数の時,
         HPが一定割合の対象がいる時,
-        一定距離に対象がいる時,
+        設定距離に対象がいる時, 　//距離系の処理は別のやり方で事前にキャッシュを行う。AIの設定の範囲だけセンサーで調べる方法をとる
         任意のタイプの対象がいる時,
         対象が回復や支援を使用した時,// 回復魔法とかで回復した時に全体イベントを飛ばすか。
         対象が大ダメージを受けた時,
         対象が特定の特殊効果の影響を受けている時,//バフとかデバフ
         対象が死亡した時,
-        対象が攻撃された時
+        対象が攻撃された時,
+        特定の属性で攻撃する対象がいる時,
+        特定の数の敵に狙われている時,// 陣営フィルタリングは有効
+        条件なし // 何も当てはまらなかった時の補欠条件。
+    }
+
+    /// <summary>
+    /// 行動判断をする前に
+    /// 自分のMPやHPの割合などの、自分に関する前提条件を判断するための設定
+    /// </summary>
+    public enum SkipJudgeCondition
+    {
+        自分のHPが一定割合の時,
+        自分のMPが一定割合の時,
+        条件なし // 何も当てはまらなかった時の補欠条件。
     }
 
     /// <summary>
@@ -43,19 +59,26 @@ public class JobAITestStatus : ScriptableObject
 
     /// <summary>
     /// 判断の結果選択される行動のタイプ。
+    /// 
     /// </summary>
-    public enum MoveState
+    public enum ActState
     {
-        追跡,
-        逃走,
-        攻撃,
-        待機,// 攻撃後のクールタイム中など。この状態で動作する回避率を設定する？
-        防御,// 動き出す距離を設定できるようにする？ その場で基本ガードだけど、相手がいくらか離れたら動き出す、的な
-        支援,
-        回復,
-        護衛,
-        警戒
+        指定なし = 0,// ステート変更判断で使う。これ以外が条件ステータスにあるとステート変更する。
+        追跡 = 1,
+        逃走 = 2,
+        攻撃 = 3,
+        待機 = 4,// 攻撃後のクールタイム中など。この状態で動作する回避率を設定する？
+        防御 = 5,// 動き出す距離を設定できるようにする？ その場で基本ガードだけど、相手がいくらか離れたら動き出す、的な
+        支援 = 6,
+        回復 = 7,
+        護衛 = 8,
+        //遠慮 = 9// めちゃくちゃ狙われてる相手に対して、攻撃するかなーって迷ってる。
+        // この状態はだんだんターゲットへのヘイト下がる。攻撃→遠慮→攻撃…を繰り返す。
+        // ヘイトが関係ない条件でターゲットにした場合も攻撃頻度は落ちる。
+        // 待機でいいじゃん
+
     }
+
 
 
     /// <summary>
@@ -66,7 +89,7 @@ public class JobAITestStatus : ScriptableObject
     /// </summary>
     public enum TargetSelectCondition
     {
-        距離,
+        距離,// ここの距離はOK
         高度,
         HP割合,
         HP,
@@ -74,7 +97,11 @@ public class JobAITestStatus : ScriptableObject
         防御力,
         キャラタイプ,// 割合や数値を示すint値にタイプを入れる。
         弱点属性,// 割合や数値を示すint値にタイプを入れる。
-
+        敵に狙われてる数,//一番狙われてるか、狙われてないか
+        属性攻撃力,//特定の属性の攻撃力が一番高い/低いヤツ
+        属性防御力,//特定の属性の攻撃力が一番高い/低いヤツ
+        特殊効果,//特定のバフやデバフがあるか/ないか
+        指定なし_ヘイト値 // 基本の条件。対象の中で最もヘイト高い相手を攻撃する。
     }
 
 
@@ -107,26 +134,13 @@ public class JobAITestStatus : ScriptableObject
 
     /// <summary>
     /// キャラクターが所属する陣営
-    /// これでアクセスするマネージャーが決まる
     /// </summary>
     public enum CharacterSide
     {
-        プレイヤー = 1 << 0,// 味方
-        魔物 = 1 << 1,// 一般的な敵
-        その他 = 1 << 2// それ以外
-    }
-
-
-
-    /// <summary>
-    /// 使用する攻撃のタイプ
-    /// 範囲攻撃とかも入れるか？
-    /// </summary>
-    public enum UseAttackType
-    {
-        Slash,//斬撃
-        Stab,//刺突
-        Strike//打撃
+        プレイヤー = 1,// 味方
+        魔物 = 2,// 一般的な敵
+        その他 = 3,// それ以外
+        指定なし = 0
     }
 
 
@@ -162,31 +176,33 @@ public class JobAITestStatus : ScriptableObject
         ボス//ボスだけ
     }
 
-    /// <summary>
-    /// 行動を使用可能なモード
-    /// 五つまで
-    /// これもビット演算でやる？　複数選べるよ？
-    /// モード1か2なら…みたいに
-    /// </summary>
-    [Flags]
-    public enum Mode
-    {
-        Mode1 = 1 << 0,
-        Mode2 = 1 << 1,
-        Mode3 = 1 << 2,
-        Mode4 = 1 << 3,
-        Mode5 = 1 << 4,
-        AllMode = 1 << 5
-    }
+    ///// <summary>
+    ///// 行動を使用可能なモード
+    ///// 五つまで
+    ///// これもビット演算でやる？　複数選べるよ？
+    ///// モード1か2なら…みたいに
+    ///   モードはいらない。再現はできる。
+    ///// </summary>
+    //[Flags]
+    //public enum Mode
+    //{
+    //    Mode1 = 1 << 0,
+    //    Mode2 = 1 << 1,
+    //    Mode3 = 1 << 2,
+    //    Mode4 = 1 << 3,
+    //    Mode5 = 1 << 4,
+    //    AllMode = 0
+    //}
 
     /// <summary>
     /// 特殊状態
     /// </summary>
+    [Flags]
     public enum SpecialState
     {
         ヘイト増大 = 1 << 1,
         ヘイト減少 = 1 << 2,
-        なし = 1 << 0,
+        なし = 0,
     }
 
     #endregion Enum定義
@@ -247,9 +263,11 @@ public class JobAITestStatus : ScriptableObject
     /// 送信するデータ、不変の物
     /// 大半ビットでまとめれそう
     /// 空飛ぶ騎士の敵いるかもしれないしタイプは組み合わせ可能にする
+    /// 初期化以降では、ステータスバフやデバフが切れた時に元に戻すくらいしかない
+    /// Jobシステムで使用しないのでメモリレイアウトは最適化
     /// </summary>
     [Serializable]
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Auto)]
     public struct CharacterBaseData
     {
 
@@ -280,7 +298,8 @@ public class JobAITestStatus : ScriptableObject
         /// <summary>
         /// キャラの初期状態。
         /// </summary>
-        public MoveState initialMove;
+        [Header("最初にどんな行動をするのかの設定")]
+        public ActState initialMove;
 
         /// <summary>
         /// デフォルトのキャラクターの所属
@@ -356,16 +375,10 @@ public class JobAITestStatus : ScriptableObject
         public float judgeInterval;
 
         /// <summary>
-        /// AIの移動判断間隔
-        /// </summary>
-        [Header("移動判断間隔")]
-        public float moveJudgeInterval;
-
-        /// <summary>
         /// 行動条件データ
         /// </summary>
         [Header("行動条件データ")]
-        public MoveJudgeData[] moveCondition;
+        public BehaviorData[] actCondition;
 
         /// <summary>
         /// 攻撃以外の行動条件データ.
@@ -375,17 +388,21 @@ public class JobAITestStatus : ScriptableObject
         public TargetJudgeData[] hateCondition;
 
         /// <summary>
-        /// ヘイト条件に対応するヘイト上昇倍率
+        /// この数値以上の敵から狙われている相手がターゲットになった場合、一旦次の判断までは待機になる
+        /// その次の判断でやっぱり一番ヘイト高ければ狙う。(狙われまくってる相手へのヘイトは下がるので、普通はその次の判断でべつのやつが狙われる)
+        /// 様子伺う、みたいなステート入れるか専用で
+        /// 一定以上に狙われてる相手かつ、様子伺ってるキャラの場合だけヘイト下げるようにしよう。
         /// </summary>
-        [Header("ヘイト上昇倍率")]
-        public int[] hateMultiplier;
+        public int targetingLimit;
 
         /// <summary>
-        /// 攻撃以外の行動条件データ.
-        /// 最初の要素ほど優先度高いので重点。
+        /// 攻撃含む行動条件データ.
+        /// 要素は一つだが、その代わり複雑な条件で指定可能
+        /// 特に指定ない場合のみヘイトで動く
+        /// ここでヘイト以外の条件を指定した場合は、行動までセットで決める。
         /// </summary>
         [Header("行動条件データ")]
-        public TargetJudgeData[] targetCondition;
+        public TargetJudgeData targetCondition;
     }
 
     /// <summary>
@@ -393,19 +410,76 @@ public class JobAITestStatus : ScriptableObject
     /// </summary>
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
-    public struct MoveJudgeData
+    public struct BehaviorData
+    {
+
+        /// <summary>
+        /// 行動をスキップするための条件。
+        /// </summary>
+        public SkipJudgeData skipData;
+
+        /// <summary>
+        /// 行動の条件。
+        /// 対象の陣営と特徴を指定できる。
+        /// </summary>
+        public ActJudgeData condition;
+
+        /// <summary>
+        /// 行動の前提条件。
+        /// 自分の条件について指定できる。
+        /// HPが〇パーセントとか
+        /// ここ設定してくれれば不要な条件については判断しなくてよくなるしな。
+        /// </summary>
+        public ActJudgeData selfCondition;
+
+    }
+
+    /// <summary>
+    /// 判断に使用するデータ。
+    /// </summary>
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SkipJudgeData
+    {
+        /// <summary>
+        /// 行動判定をスキップする条件
+        /// </summary>
+        [Header("行動判定をスキップする条件")]
+        public SkipJudgeCondition skipCondition;
+
+        /// <summary>
+        /// 判断に使用する数値。
+        /// 条件によってはenumを変換した物だったりする。
+        /// </summary>
+        public int judgeValue;
+
+        /// <summary>
+        /// 真の場合、条件が反転する
+        /// 以上は以内になるなど
+        /// </summary>
+        [Header("基準反転フラグ")]
+        public bool isInvert;
+
+    }
+
+    /// <summary>
+    /// 判断に使用するデータ。
+    /// </summary>
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ActJudgeData
     {
         /// <summary>
         /// 行動条件
         /// </summary>
-        [Header("行動条件")]
-        public MoveJudgeCondition moveCondition;
+        [Header("行動判定の条件")]
+        public ActJudgeCondition judgeCondition;
 
         /// <summary>
-        /// 判断条件の対象のタイプ
+        /// 判断に使用する数値。
+        /// 条件によってはenumを変換した物だったりする。
         /// </summary>
-        [Header("判断対象タイプ")]
-        public TargetType targetType;
+        public int judgeValue;
 
         /// <summary>
         /// 真の場合、条件が反転する
@@ -415,10 +489,17 @@ public class JobAITestStatus : ScriptableObject
         public bool isInvert;
 
         /// <summary>
-        /// 判断条件の行動タイプ
+        /// これが指定なし、以外だとステート変更を行う。
+        /// よって行動判断はスキップ
         /// </summary>
-        [Header("判断対象タイプ")]
-        public MoveState moveType;
+        public ActState stateChange;
+
+        /// <summary>
+        /// 対象の陣営区分
+        /// 複数指定あり
+        /// </summary>
+        [Header("チェック対象の条件")]
+        public TargetFilter filter;
     }
 
     /// <summary>
@@ -441,79 +522,144 @@ public class JobAITestStatus : ScriptableObject
         /// </summary>
         [Header("基準反転フラグ")]
         public bool isInvert;
+
+        /// <summary>
+        /// 対象の陣営区分
+        /// 複数指定あり
+        /// </summary>
+        [Header("チェック対象の条件")]
+        public TargetFilter filter;
+
+        /// <summary>
+        /// 使用する行動の番号。
+        /// 指定なし ( = -1)の場合は敵の条件から勝手に決める。
+        /// そうでない場合はここまで設定する。
+        /// 
+        /// あるいはヘイト上昇倍率になる。
+        /// </summary>
+        public float useAttackOrHateNum;
     }
 
     /// <summary>
-    /// モードを変える条件。
-    /// AIの振る舞い部分にあたる
-    /// これはまだ使わない
+    /// 行動条件や対象設定条件で検査対象をフィルターするための構造体
     /// </summary>
-    [Serializable]
-    [StructLayout(LayoutKind.Sequential)]
-    public struct ModeBehavior
+    public struct TargetFilter
     {
         /// <summary>
-        /// アタックストップフラグが真の時だけ
-        /// レベルとか関係なく発動
+        /// 対象の陣営区分
+        /// 複数指定あり
         /// </summary>
-        [Header("攻撃抑制モードか")]
-        public bool isAttackStop;
+        [Header("対象の陣営")]
+        [SerializeField]
+        CharacterSide targetType;
 
         /// <summary>
-        /// 現在のモード
-        /// 複数選択可能
+        /// 対象の特徴
+        /// 複数指定あり
         /// </summary>
-        [Header("遷移元のモード")]
-        public Mode nowMode;
+        [Header("対象の特徴")]
+        [SerializeField]
+        CharacterFeature targetFeature;
 
         /// <summary>
-        /// モードチェンジする体力割合
-        /// 0なら無視
+        /// このフラグが真の時、全部当てはまってないとダメ。
         /// </summary>
-        [Header("モード変更する体力比。0で無視")]
-        public int healthRatio;
+        [Header("特徴の判断方法")]
+        [SerializeField]
+        bool isAndFeatureCheck;
 
         /// <summary>
-        /// 前回のモードチェンジから何秒で変化するか
-        /// 0なら無視
+        /// 検査対象キャラクターの条件に当てはまるかをチェックする。
         /// </summary>
-        [Header("モード変更時間")]
-        public int changeTime;
+        /// <param name="belong"></param>
+        /// <param name="feature"></param>
+        /// <returns></returns>
+        [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
+        public bool IsPassFilter(CharacterSide belong, CharacterFeature feature)
+        {
+            // andかorで特徴条件判定
+            bool isFeature = isAndFeatureCheck ? ((targetFeature == 0) || (targetFeature & feature) == targetFeature) :
+                                                  ((targetFeature == 0) || (targetFeature & feature) > 0);
 
-        /// <summary>
-        /// xからyの距離でこのモードに
-        /// つまり直線距離Xメートルからyメートルの範囲ってことね
-        /// 直線距離
-        /// 00なら無視
-        /// </summary>
-        [Header("モード変更距離（00で無効）")]
-        public Vector2 changeDistance;
+            return ((targetType == 0) || (targetType & belong) > 0) && isFeature;
+        }
 
-        /// <summary>
-        /// 変える先のモード
-        /// Allならランダムに変わる
-        /// 間合いとかの配列数からモードの数を割り出す
-        /// </summary>
-        [Header("変更先のモード")]
-        public Mode changeMode;
-
-        /// <summary>
-        /// この条件のチェンジの優先度
-        /// 0は基本モードにのみ使う
-        /// いや基本モードはマイナス1でもいいな
-        /// どこからでも戻れるように条件は軽く
-        /// </summary>
-        [Header("チェンジの優先度。5の時固定")]
-        public int modeLevel;
     }
+
+    ///// <summary>
+    ///// モードを変える条件。
+    ///// AIの振る舞い部分にあたる
+    ///// これはまだ使わない
+    ///// モード廃止に伴い封印
+    ///// </summary>
+    //[Serializable]
+    //[StructLayout(LayoutKind.Sequential)]
+    //public struct ModeBehavior
+    //{
+    //    /// <summary>
+    //    /// アタックストップフラグが真の時だけ
+    //    /// レベルとか関係なく発動
+    //    /// </summary>
+    //    [Header("攻撃抑制モードか")]
+    //    public bool isAttackStop;
+
+    //    /// <summary>
+    //    /// 現在のモード
+    //    /// 複数選択可能
+    //    /// </summary>
+    //    [Header("遷移元のモード")]
+    //    public Mode nowMode;
+
+    //    /// <summary>
+    //    /// モードチェンジする体力割合
+    //    /// 0なら無視
+    //    /// </summary>
+    //    [Header("モード変更する体力比。0で無視")]
+    //    public int healthRatio;
+
+    //    /// <summary>
+    //    /// 前回のモードチェンジから何秒で変化するか
+    //    /// 0なら無視
+    //    /// </summary>
+    //    [Header("モード変更時間")]
+    //    public int changeTime;
+
+    //    /// <summary>
+    //    /// xからyの距離でこのモードに
+    //    /// つまり直線距離Xメートルからyメートルの範囲ってことね
+    //    /// 直線距離
+    //    /// 00なら無視
+    //    /// </summary>
+    //    [Header("モード変更距離（00で無効）")]
+    //    public Vector2 changeDistance;
+
+    //    /// <summary>
+    //    /// 変える先のモード
+    //    /// Allならランダムに変わる
+    //    /// 間合いとかの配列数からモードの数を割り出す
+    //    /// </summary>
+    //    [Header("変更先のモード")]
+    //    public Mode changeMode;
+
+    //    /// <summary>
+    //    /// この条件のチェンジの優先度
+    //    /// 0は基本モードにのみ使う
+    //    /// いや基本モードはマイナス1でもいいな
+    //    /// どこからでも戻れるように条件は軽く
+    //    /// </summary>
+    //    [Header("チェンジの優先度。5の時固定")]
+    //    public int modeLevel;
+    //}
 
     /// <summary>
     /// 攻撃のステータス。
     /// 倍率とか属性とかそのへん。
     /// これはステータスに持たせておく。
+    /// 前回使用した時間、とかを記録するために、キャラクター側に別途リンクした管理情報が必要。
+    /// Jobシステムで使用しない構造体はなるべくメモリレイアウトを最適化する。
     /// </summary>
     [Serializable]
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Auto)]
     public struct AttackData
     {
         /// <summary>
@@ -574,9 +720,10 @@ public class JobAITestStatus : ScriptableObject
 
     /// <summary>
     /// キャラのAIの設定。
+    /// モードごとにモードEnumをint変換した数をインデックスにした配列になる。
     /// </summary>
     [Header("キャラAIの設定")]
-    public CharacterBrainStatus brainData;
+    public CharacterBrainStatus[] brainData;
 
     /// <summary>
     /// 移動速度などのデータ
@@ -590,4 +737,9 @@ public class JobAITestStatus : ScriptableObject
     [Header("攻撃データ一覧")]
     public AttackData[] attackData;
 
+    /// <summary>
+    /// AIの移動方向変化判断間隔
+    /// </summary>
+    [Header("移動判断間隔")]
+    public float moveJudgeInterval;
 }

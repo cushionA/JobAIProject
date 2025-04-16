@@ -200,7 +200,7 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
                 return entry.ValueIndex;
             }
 
-            // ハッシュコードが重複しないが、同じバケットに要素がある場合はバケットないの次の要素として保存。
+            // ハッシュコードが重複しないが、同じバケットに要素がある場合はバケット内の次の要素として保存。
             entryIndex = entry.NextInBucket;
         }
 

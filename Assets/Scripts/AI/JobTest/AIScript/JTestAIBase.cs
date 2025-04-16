@@ -7,6 +7,7 @@ using System;
 using Unity.VisualScripting;
 using static JobAITestStatus;
 using System.Runtime.InteropServices;
+using UnityEngine.Events;
 
 /// <summary>
 /// NativeContainerのリストを使うぞ
@@ -30,6 +31,24 @@ using System.Runtime.InteropServices;
 public class JTestAIBase : MonoBehaviour
 {
     #region 定義
+
+    #region enum定義
+
+    /// <summary>
+    /// 判断結果をまとめて格納するビット演算用
+    /// </summary>
+    [Flags]
+    public enum JudgeResult
+    {
+        新しく判断をしたか = 1 << 1,// この時は移動方向も変える
+        方向転換をしたか = 1 << 2,
+        ステート変更したか = 1 << 3 // 状態が変わった時は、行動指定番号がそのまま変更先のステートになる
+    }
+
+    #endregion enum定義
+
+
+    #region 構造体定義
 
     /// <summary>
     /// 判断に使用するデータの構造体。
@@ -57,22 +76,23 @@ public class JTestAIBase : MonoBehaviour
     /// </summary>
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
-    public struct MoveData
+    public struct MovementInfo
     {
 
-        // これキャラがどう動くか、みたいなデータまで入ってるね
+        // これキャラがどう動くか、みたいなデータまで入れてる
+        // 新規判断後はターゲット入れ替えとか、判断時間入れ替えとかちょっとキャラデータをいじる。
 
         /// <summary>
-        /// ターゲットのスクリプト。
+        /// ターゲットのハッシュコード
         /// これで相手を取得する。
         /// 味方への支援ムーブのターゲットもありうることは頭に入れる。
         /// </summary>
-        public JTestAIBase target;
+        public int targetHash;
 
         /// <summary>
-        /// 現在の移動速度。マイナスもあるので方向でもある。
+        /// 現在のターゲットとの距離。マイナスもあるので方向でもある。
         /// </summary>
-        public int moveSpeed;
+        public int targetDirection;
 
         /// <summary>
         /// 攻撃の判断で通過した判断条件が何番かというデータ。判断にかからんければ、というか攻撃しないときは-1入れとく<br/>
@@ -84,14 +104,28 @@ public class JTestAIBase : MonoBehaviour
         /// しかしシスターさんの場合は装備する魔法が変わるため、条件で攻撃を指定する。<br/>
         /// その場合は条件を受け取って、クラスの方でシスターさんが使う魔法を決める。<br/>
         /// というより魔法と普通の攻撃を統合して、攻撃を選ぶ感じにした方がAIの汎用性が出そう
+        /// 
+        /// 行動を指定する番号。-1、の場合だけ敵条件から行動判断
+        /// そうでなければ直接指定
+        /// しかし味方NPCの場合、魔法を組み替えできるので行動の指定番号は可変だね。
+        /// あとMP足りないときどうしよう。MPは全キャラで保有/消費するようにして、それで行動の制限かけるか。で、MPがあるかの判断を仕様に組み込む
+        /// 
+        /// ちなみにステート変更時は変更先ステートの番号になる。
+        /// ステート変更したらすぐ判断できるようにlastJudgetimeも変えないとな
         /// </summary>
         public int attackJudgeNum;
 
+        /// <summary>
+        /// 判断結果についての情報を格納するビット
+        /// </summary>
+        public int result;
+
+        /// <summary>
+        /// 行動状態。
+        /// </summary>
+        public ActState moveState;
+
     }
-
-
-
-    #region 定義
 
     /// <summary>
     /// Jobシステムで使用するキャラクターデータ構造体。
@@ -107,17 +141,26 @@ public class JTestAIBase : MonoBehaviour
         /// <param name="gameObject"></param>
         public CharacterData(JobAITestStatus status, GameObject gameObject)
         {
-            baseData = status.baseData;
-            brainData = new CharacterBrainStatusForJob(status.brainData, Allocator.Persistent);
-            hashCode = gameObject.GetHashCode();
-            liveData = new CharacterUpdateData(baseData, gameObject.transform.position);
-            solidData = status.solidData;
-        }
+            brainData = new NativeArray<CharacterBrainStatusForJob>(status.brainData.Length, Allocator.Persistent);
 
-        /// <summary>
-        /// 固定データ。
-        /// </summary>
-        CharacterBaseData baseData;
+            for ( int i = 0; i < status.brainData.Length; i++ )
+            {
+                brainData[i].ConvertToJobFormat(status.brainData[i], Allocator.Persistent);
+            }
+
+            hashCode = gameObject.GetHashCode();
+            liveData = new CharacterUpdateData(status.baseData, gameObject.transform.position);
+            solidData = status.solidData;
+            targetingCount = 0;
+            // 最初はマイナスで10000を入れることですぐ動けるように
+            lastJudgeTime = -10000;
+
+            personalHate = new NativeHashMap<int, int>(7, Allocator.Persistent);
+            shortRangeCharacter = new UnsafeList<int>(7, Allocator.Persistent);
+
+            moveJudgeInterval = status.moveJudgeInterval;
+            lastMoveJudgeTime = 0;// どうせ行動判断時に振り向くから
+        }
 
         /// <summary>
         /// 固定のデータ。
@@ -126,8 +169,9 @@ public class JTestAIBase : MonoBehaviour
 
         /// <summary>
         /// キャラのAIの設定。(Jobバージョン)
+        /// モードごとにモードEnumをint変換した数をインデックスにした配列になる。
         /// </summary>
-        public CharacterBrainStatusForJob brainData;
+        public NativeArray<CharacterBrainStatusForJob> brainData;
 
         /// <summary>
         /// 更新されうるデータ。
@@ -135,16 +179,57 @@ public class JTestAIBase : MonoBehaviour
         public CharacterUpdateData liveData;
 
         /// <summary>
+        /// 自分を狙ってる敵の数。
+        /// ボスか指揮官は無視でよさそう
+        /// 今攻撃してるやつも攻撃を終えたら別のターゲットを狙う。
+        /// このタイミングで割りこめるやつが割り込む
+        /// あくまでヘイト値を減らす感じで。一旦待機になって、ヘイト減るだけなので殴られたら殴り返すよ
+        /// 遠慮状態以外なら遠慮になるし、遠慮中でなお一番ヘイト高いなら攻撃して、その次は遠慮になる
+        /// </summary>
+        public int targetingCount;
+
+        /// <summary>
+        /// 最後に判断した時間。
+        /// </summary>
+        public float lastJudgeTime;
+
+        /// <summary>
+        /// 最後に移動判断した時間。
+        /// </summary>
+        public float lastMoveJudgeTime;
+
+        /// <summary>
         /// キャラクターのハッシュ値を保存しておく。
         /// </summary>
         public int hashCode;
 
         /// <summary>
+        /// 攻撃してきた相手とか、直接的な条件に当てはまった相手のヘイトだけ記録する。
+        /// </summary>
+        public NativeHashMap<int, int> personalHate;
+
+        /// <summary>
+        /// 近くにいるキャラクターの記録。
+        /// これはセンサーで断続的に取得する参考値。
+        /// 上限は7~10の予定
+        /// </summary>
+        public UnsafeList<int> shortRangeCharacter;
+
+        /// <summary>
+        /// AIの移動判断間隔
+        /// </summary>
+        [Header("移動判断間隔")]
+        public float moveJudgeInterval;
+
+        /// <summary>
         /// NativeContainerを含むメンバーを破棄。
+        /// CombatManagerが責任を持って破棄する。
         /// </summary>
         public void Dispose()
         {
             brainData.Dispose();
+            personalHate.Dispose();
+            shortRangeCharacter.Dispose();
         }
     }
 
@@ -162,17 +247,13 @@ public class JTestAIBase : MonoBehaviour
         [Header("判断間隔")]
         public float judgeInterval;
 
-        /// <summary>
-        /// AIの移動判断間隔
-        /// </summary>
-        [Header("移動判断間隔")]
-        public float moveJudgeInterval;
+
 
         /// <summary>
         /// 行動条件データ
         /// </summary>
         [Header("行動条件データ")]
-        public NativeArray<MoveJudgeData> moveCondition;
+        public NativeArray<BehaviorData> actCondition;
 
         /// <summary>
         /// 攻撃以外の行動条件データ.
@@ -188,25 +269,25 @@ public class JTestAIBase : MonoBehaviour
         public NativeArray<int> hateMultiplier;
 
         /// <summary>
-        /// 攻撃以外の行動条件データ.
-        /// 最初の要素ほど優先度高いので重点。
+        /// 攻撃含む行動条件データ.
+        /// 要素は一つだが、その代わり複雑な条件で指定可能
+        /// 特に指定ない場合のみヘイトで動く
+        /// ここでヘイト以外の条件を指定した場合は、行動までセットで決める。
         /// </summary>
         [Header("行動条件データ")]
-        public NativeArray<TargetJudgeData> targetCondition;
+        public TargetJudgeData targetCondition;
 
         /// <summary>
         /// NativeArrayリソースを解放する
         /// </summary>
         public void Dispose()
         {
-            if ( moveCondition.IsCreated )
-                moveCondition.Dispose();
+            if ( actCondition.IsCreated )
+                actCondition.Dispose();
             if ( hateCondition.IsCreated )
                 hateCondition.Dispose();
             if ( hateMultiplier.IsCreated )
                 hateMultiplier.Dispose();
-            if ( targetCondition.IsCreated )
-                targetCondition.Dispose();
         }
 
         /// <summary>
@@ -214,28 +295,20 @@ public class JTestAIBase : MonoBehaviour
         /// </summary>
         /// <param name="source">移植元のキャラクターブレインステータス</param>
         /// <param name="allocator">NativeArrayに使用するアロケータ</param>
-        public CharacterBrainStatusForJob(in CharacterBrainStatus source, Allocator allocator)
+        public void ConvertToJobFormat(in CharacterBrainStatus source, Allocator allocator)
         {
 
             // 基本プロパティをコピー
             judgeInterval = source.judgeInterval;
-            moveJudgeInterval = source.moveJudgeInterval;
+            targetCondition = source.targetCondition;
 
             // 配列を新しく作成
-            moveCondition = source.moveCondition != null
-                ? new NativeArray<MoveJudgeData>(source.moveCondition, allocator)
-                : new NativeArray<MoveJudgeData>(0, allocator);
+            actCondition = source.actCondition != null
+                ? new NativeArray<BehaviorData>(source.actCondition, allocator)
+                : new NativeArray<BehaviorData>(0, allocator);
 
             hateCondition = source.hateCondition != null
                 ? new NativeArray<TargetJudgeData>(source.hateCondition, allocator)
-                : new NativeArray<TargetJudgeData>(0, allocator);
-
-            hateMultiplier = source.hateMultiplier != null
-                ? new NativeArray<int>(source.hateMultiplier, allocator)
-                : new NativeArray<int>(0, allocator);
-
-            targetCondition = source.targetCondition != null
-                ? new NativeArray<TargetJudgeData>(source.targetCondition, allocator)
                 : new NativeArray<TargetJudgeData>(0, allocator);
         }
 
@@ -308,7 +381,12 @@ public class JTestAIBase : MonoBehaviour
         /// 移動とか逃走でAIの動作が変わる。
         /// 逃走の場合は敵の距離を参照して相手が少ないところに逃げようと考えたり
         /// </summary>
-        public MoveState state;
+        public ActState actState;
+
+        /// <summary>
+        /// キャラが大ダメージを与えた、などのイベントを格納する場所。
+        /// </summary>
+        public int brainEventBit;
 
         /// <summary>
         /// 既存のCharacterUpdateDataにCharacterBaseDataの値を適用する
@@ -331,7 +409,8 @@ public class JTestAIBase : MonoBehaviour
 
             nowPosition = initialPosition;
 
-            state = baseData.initialMove;
+            actState = baseData.initialMove;
+            brainEventBit = 0;
         }
     }
 

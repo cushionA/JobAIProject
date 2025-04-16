@@ -10,7 +10,7 @@ using static JTestAIBase;
 
 /// <summary>
 /// 次のフレームで全体に適用するイベントリスト、みたいなのを持って、そこにキャラクターがデータを渡せるようにするか
-/// Dispose必須
+/// Dispose必須。AI関連のDispose()はここでやる責任がある。
 /// </summary>
 public class CombatManager : MonoBehaviour, IDisposable
 {
@@ -20,13 +20,14 @@ public class CombatManager : MonoBehaviour, IDisposable
     /// <summary>
     /// AIのイベントのタイプ。
     /// </summary>
-    public enum AIEventType
+    public enum AIEventFlagType
     {
-        大ダメージを与えた,
-        回復や支援を使用した,
-        キャラが死亡した,
-        指揮官が倒された,
-        攻撃対象指定,// 指揮官による命令
+        大ダメージを与えた = 1 << 1,
+        大ダメージを受けた = 1 << 2,
+        回復や支援を使用した = 1 << 3,
+        キャラが死亡した = 1 << 4,
+        指揮官が倒された = 1 << 5,
+        攻撃対象指定 = 1 << 6,// 指揮官による命令
     }
 
     /// <summary>
@@ -41,13 +42,30 @@ public class CombatManager : MonoBehaviour, IDisposable
         /// <summary>
         /// イベントのタイプ
         /// </summary>
-        public AIEventType type;
+        public AIEventFlagType type;
 
         /// <summary>
-        /// 敵を倒したり、攻撃命令の指定になったりする、ヘイト編集先のハッシュ
-        /// イベントの種類によって
+        /// 敵を倒した奴だったり、攻撃命令の指定になったりする、ヘイト編集先のハッシュ
+        /// 敵チームのイベントならここを見る。
         /// </summary>
-        public int targetHash;
+        public int enemyHash;
+
+        /// <summary>
+        /// イベントを呼んだ人のハッシュ。
+        /// 攻撃を受けた人、命令対象、など
+        /// 味方チームに属するイベントならここを見る。
+        /// </summary>
+        public int allyHash;
+
+        /// <summary>
+        /// イベント開始時間
+        /// </summary>
+        public float startTime;
+
+        /// <summary>
+        /// イベントがどれくらいの間保持されるか、という時間。
+        /// </summary>
+        public float eventHoldTime;
 
     }
 
@@ -63,16 +81,13 @@ public class CombatManager : MonoBehaviour, IDisposable
     /// 陣営ごとに分ける
     /// Jobシステムに渡す時は上手くCharacterDataのNativeArrayにしてやろう。
     /// </summary>
-    public CharacterDataDictionary<CharacterData, JTestAIBase>[] charaDataDictionary = new CharacterDataDictionary<CharacterData, JTestAIBase>[3];
-    /// <summary>
-    /// ↓こんな感じで
-    /// </summary>
-    NativeArray<UnsafeList<CharacterData>> team = new NativeArray<UnsafeList<CharacterData>>(3, Allocator.Persistent);
+    public CharacterDataDictionary<CharacterData, JTestAIBase> charaDataDictionary = new CharacterDataDictionary<CharacterData, JTestAIBase>(7);
 
     /// <summary>
     /// プレイヤー、敵、その他、それぞれが敵対している陣営をビットで表現。
+    /// キャラデータのチーム設定と一緒に使う
     /// </summary>
-    public static readonly int[] relationMap = new int[3];
+    public static NativeArray<int> relationMap = new Unity.Collections.NativeArray<int>(3, Allocator.Persistent);
 
     /// <summary>
     /// 陣営ごとに設定されたヘイト値。
@@ -85,10 +100,25 @@ public class CombatManager : MonoBehaviour, IDisposable
 
     /// <summary>
     /// AIのイベントを受け付ける入れ物。
+    /// 使うたびにクリアする。
+    /// 判断インタバルとか関係なく反映させる
+    /// やっぱこれJobの外で処理する？
+    /// Job発動前、イベント追加時にキャラにフラグ設定したりヘイト値いじったりしよう
+    /// で、削除時にフラグだけ解除する。
     /// </summary>
     public UnsafeList<AIEventContainer> eventContainer = new UnsafeList<AIEventContainer>(7, Allocator.Persistent);
 
-    // 
+    /// <summary>
+    /// 行動決定データ。
+    /// Jobの書き込み先で、ターゲット変更の反映とかも全部これをもとに受け取ったキャラクターがやる。
+    /// </summary>
+    public UnsafeList<MovementInfo> judgeResult = new UnsafeList<MovementInfo>(7, Allocator.Persistent);
+
+    /// <summary>
+    /// 前回判断を実行した際の時間を記録する。
+    /// これを使用して判断結果を受けたオブジェクトたちが前回判定時間を再度設定する。
+    /// </summary>
+    public float lastJudgeTime;
 
     /// <summary>
     /// 起動時にシングルトンのインスタンス作成。
@@ -138,7 +168,7 @@ public class CombatManager : MonoBehaviour, IDisposable
         int hashCode = addObject.GetHashCode();
 
         // キャラデータを追加し、敵対する陣営のヘイトリストにも入れる。
-        charaDataDictionary[teamNum].AddByHash(hashCode, new CharacterData(status, addObject));
+        charaDataDictionary.AddByHash(hashCode, new CharacterData(status, addObject));
 
         for ( int i = 0; i < teamHate.Length; i++ )
         {
@@ -148,7 +178,7 @@ public class CombatManager : MonoBehaviour, IDisposable
             }
 
             // 敵対チェック
-            if ( HostileCheck(i, teamNum) )
+            if ( CheckTeamHostility(i, teamNum) )
             {
                 // ひとまずヘイトの初期値は10とする。
                 teamHate[i].Add(hashCode, 10);
@@ -167,10 +197,10 @@ public class CombatManager : MonoBehaviour, IDisposable
         int teamNum = (int)team;
 
         // 削除の前に値を処理する。
-        charaDataDictionary[teamNum][hashCode].Dispose();
+        charaDataDictionary[hashCode].Dispose();
 
         // キャラデータを削除し、敵対する陣営のヘイトリストからも消す。
-        charaDataDictionary[teamNum].RemoveByHash(hashCode);
+        charaDataDictionary.RemoveByHash(hashCode);
 
         for ( int i = 0; i < teamHate.Length; i++ )
         {
@@ -189,7 +219,7 @@ public class CombatManager : MonoBehaviour, IDisposable
     /// <param name="team2"></param>
     /// <returns></returns>
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    private bool HostileCheck(int team1, int team2)
+    private bool CheckTeamHostility(int team1, int team2)
     {
         return (relationMap[team1] & 1 << team2) > 0;
     }
@@ -207,7 +237,9 @@ public class CombatManager : MonoBehaviour, IDisposable
         }
         eventContainer.Dispose();
         teamHate.Dispose();
+        relationMap.Dispose();
 
         Destroy(instance);
     }
+
 }

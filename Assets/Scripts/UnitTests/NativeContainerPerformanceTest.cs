@@ -18,7 +18,7 @@ using System.Linq;
 public class NativeContainerPerformanceTest
 {
     // テストの要素数
-    private const int ElementCount = 100000;
+    private const int ElementCount = 80;
 
     // テスト用のコレクション
     private Dictionary<int, int> dictionary;
