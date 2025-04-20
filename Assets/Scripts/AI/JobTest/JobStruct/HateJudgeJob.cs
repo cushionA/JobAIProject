@@ -10,7 +10,7 @@ using static CombatManager;
 public class HateJudgeJob : IJobParallelFor
 {
 
-    public UnsafeList<AIEventContainer> hateEvents;
+    public UnsafeList<BrainEventContainer> hateEvents;
 
     [WriteOnly]
     public NativeArray<int> teamHate;

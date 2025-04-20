@@ -19,43 +19,47 @@ public class CombatManager : MonoBehaviour, IDisposable
 
     /// <summary>
     /// AIのイベントのタイプ。
+    /// チームのヘイトをいじるか、イベントフラグを立てるかのどっちか
+    /// 各キャラがチームの数と同じだけイベントフラグ入れ物を作って、イベント発生時にビット演算で反映する。
+    /// 倒した系のフラグは撃破時のチームヘイト上昇で対応する。
     /// </summary>
-    public enum AIEventFlagType
+    [Flags]
+    public enum BrainEventFlagType
     {
-        大ダメージを与えた = 1 << 1,
-        大ダメージを受けた = 1 << 2,
-        回復や支援を使用した = 1 << 3,
-        キャラが死亡した = 1 << 4,
-        指揮官が倒された = 1 << 5,
-        攻撃対象指定 = 1 << 6,// 指揮官による命令
+        None = 0,  // フラグなしの状態を表す基本値
+        大ダメージを与えた = 1 << 0,   // 相手に大きなダメージを与えた
+        大ダメージを受けた = 1 << 1,   // 相手から大きなダメージを受けた
+        回復を使用 = 1 << 2,         // 回復アビリティを使用した
+        支援を使用 = 1 << 3,         // 支援アビリティを使用した
+        //誰かを倒した = 1 << 4,        // 敵または味方を倒した
+        //指揮官を倒した = 1 << 5,      // 指揮官を倒した
+        攻撃対象指定 = 1 << 5,        // 指揮官による攻撃対象の指定
+        威圧 = 1 << 6,//威圧状態だと敵が怖がる？
     }
 
     /// <summary>
     /// AIのイベントの送信先。
-    /// ここに渡せばJobシステムで処理してくれる。
+    /// これをシングルトンに渡せばJobシステムで処理してくれる。
+    /// 時間経過したらそのキャラからフラグを消すための設定。消すための記録がこれ。
+    /// イベント追加時に対象キャラにフラグを設定し、抹消時に消す。
+    /// 時間経過の他、キャラ死亡時もここに問い合わせないとな。
+    /// ハッシュが一致するイベントを全探索して削除。
     /// </summary>
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
-    public struct AIEventContainer
+    public struct BrainEventContainer
     {
 
         /// <summary>
         /// イベントのタイプ
         /// </summary>
-        public AIEventFlagType type;
-
-        /// <summary>
-        /// 敵を倒した奴だったり、攻撃命令の指定になったりする、ヘイト編集先のハッシュ
-        /// 敵チームのイベントならここを見る。
-        /// </summary>
-        public int enemyHash;
+        public BrainEventFlagType eventType;
 
         /// <summary>
         /// イベントを呼んだ人のハッシュ。
-        /// 攻撃を受けた人、命令対象、など
-        /// 味方チームに属するイベントならここを見る。
+        /// 
         /// </summary>
-        public int allyHash;
+        public int targetHash;
 
         /// <summary>
         /// イベント開始時間
@@ -66,6 +70,22 @@ public class CombatManager : MonoBehaviour, IDisposable
         /// イベントがどれくらいの間保持されるか、という時間。
         /// </summary>
         public float eventHoldTime;
+
+
+        /// <summary>
+        /// AIのイベントのコンストラクタ。
+        /// startTimeは現在時を入れる。
+        /// </summary>
+        /// <param name="brainEvent"></param>
+        /// <param name="hashCode"></param>
+        /// <param name="holdTime"></param>
+        public BrainEventContainer(BrainEventFlagType brainEvent, int hashCode, float holdTime)
+        {
+            eventType = brainEvent;
+            targetHash = hashCode;
+            startTime = GameManager.instance.NowTime;
+            eventHoldTime = holdTime;
+        }
 
     }
 
@@ -100,13 +120,10 @@ public class CombatManager : MonoBehaviour, IDisposable
 
     /// <summary>
     /// AIのイベントを受け付ける入れ物。
-    /// 使うたびにクリアする。
-    /// 判断インタバルとか関係なく反映させる
-    /// やっぱこれJobの外で処理する？
-    /// Job発動前、イベント追加時にキャラにフラグ設定したりヘイト値いじったりしよう
-    /// で、削除時にフラグだけ解除する。
+    /// 時間管理のために使う。
+    /// Jobシステムで一括で時間見るか、普通にループするか（イベントはそんなに数がなさそうだし普通が速いかも）
     /// </summary>
-    public UnsafeList<AIEventContainer> eventContainer = new UnsafeList<AIEventContainer>(7, Allocator.Persistent);
+    public UnsafeList<BrainEventContainer> eventContainer = new UnsafeList<BrainEventContainer>(7, Allocator.Persistent);
 
     /// <summary>
     /// 行動決定データ。
@@ -192,7 +209,7 @@ public class CombatManager : MonoBehaviour, IDisposable
     /// </summary>
     /// <param name="hashCode"></param>
     /// <param name="team"></param>
-    public void CharacterRemove(int hashCode, CharacterSide team)
+    public void CharacterDead(int hashCode, CharacterSide team)
     {
         int teamNum = (int)team;
 
@@ -208,6 +225,17 @@ public class CombatManager : MonoBehaviour, IDisposable
             if ( teamHate[i].ContainsKey(hashCode) )
             {
                 teamHate[i].Remove(hashCode);
+            }
+        }
+
+        // 消えるやつに紐づいたイベントを削除。
+        // 安全にループ内で削除するために後ろから前へとループする。
+        for ( int i = eventContainer.Length - 1; i > 0; i-- )
+        {
+            // 消えるやつにハッシュが一致するなら。
+            if ( eventContainer[i].targetHash == hashCode )
+            {
+                eventContainer.RemoveAtSwapBack(i);
             }
         }
     }

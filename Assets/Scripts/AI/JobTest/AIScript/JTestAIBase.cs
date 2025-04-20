@@ -8,6 +8,7 @@ using Unity.VisualScripting;
 using static JobAITestStatus;
 using System.Runtime.InteropServices;
 using UnityEngine.Events;
+using static CombatManager;
 
 /// <summary>
 /// NativeContainerのリストを使うぞ
@@ -40,9 +41,23 @@ public class JTestAIBase : MonoBehaviour
     [Flags]
     public enum JudgeResult
     {
+        何もなし = 0,
         新しく判断をしたか = 1 << 1,// この時は移動方向も変える
         方向転換をしたか = 1 << 2,
-        ステート変更したか = 1 << 3 // 状態が変わった時は、行動指定番号がそのまま変更先のステートになる
+
+    }
+
+    /// <summary>
+    /// キャラの特殊行動を記録するためのフラグ列挙型。
+    /// いらなそう。対応する行動をしたやつのチームヘイトを上げたりすればいいだけ。
+    /// </summary>
+    public enum CharacterActionLog
+    {
+        回復した,
+        回復された,
+        大ダメージを受けた,
+        魔物に大ダメージを与えた,
+
     }
 
     #endregion enum定義
@@ -112,16 +127,22 @@ public class JTestAIBase : MonoBehaviour
         /// 
         /// ちなみにステート変更時は変更先ステートの番号になる。
         /// ステート変更したらすぐ判断できるようにlastJudgetimeも変えないとな
+        /// 
+        /// これ、行動を番号で指定するんなら対応する行動のデータも作らないとダメだな
+        /// 攻撃に限らず逃走とかも全部。移動方向から使用モーション、行動の種別まで（魔法とか移動とか）
+        /// こっちの構造データはステータスに持たせとこ
+        /// で、ヘイト時の行動を決めるための判断処理は共通で実装しとくか。
+        /// その条件もステータスに持たせておけばいい
         /// </summary>
-        public int attackJudgeNum;
+        public int actNum;
 
         /// <summary>
         /// 判断結果についての情報を格納するビット
         /// </summary>
-        public int result;
+        public JudgeResult result;
 
         /// <summary>
-        /// 行動状態。
+        /// 現在の行動状態。
         /// </summary>
         public ActState moveState;
 
@@ -247,8 +268,6 @@ public class JTestAIBase : MonoBehaviour
         [Header("判断間隔")]
         public float judgeInterval;
 
-
-
         /// <summary>
         /// 行動条件データ
         /// </summary>
@@ -263,21 +282,6 @@ public class JTestAIBase : MonoBehaviour
         public NativeArray<TargetJudgeData> hateCondition;
 
         /// <summary>
-        /// ヘイト条件に対応するヘイト上昇倍率
-        /// </summary>
-        [Header("ヘイト上昇倍率")]
-        public NativeArray<int> hateMultiplier;
-
-        /// <summary>
-        /// 攻撃含む行動条件データ.
-        /// 要素は一つだが、その代わり複雑な条件で指定可能
-        /// 特に指定ない場合のみヘイトで動く
-        /// ここでヘイト以外の条件を指定した場合は、行動までセットで決める。
-        /// </summary>
-        [Header("行動条件データ")]
-        public TargetJudgeData targetCondition;
-
-        /// <summary>
         /// NativeArrayリソースを解放する
         /// </summary>
         public void Dispose()
@@ -286,8 +290,6 @@ public class JTestAIBase : MonoBehaviour
                 actCondition.Dispose();
             if ( hateCondition.IsCreated )
                 hateCondition.Dispose();
-            if ( hateMultiplier.IsCreated )
-                hateMultiplier.Dispose();
         }
 
         /// <summary>
@@ -300,7 +302,6 @@ public class JTestAIBase : MonoBehaviour
 
             // 基本プロパティをコピー
             judgeInterval = source.judgeInterval;
-            targetCondition = source.targetCondition;
 
             // 配列を新しく作成
             actCondition = source.actCondition != null
@@ -345,12 +346,12 @@ public class JTestAIBase : MonoBehaviour
         /// <summary>
         /// HPの割合
         /// </summary>
-        public float hpRatio;
+        public int hpRatio;
 
         /// <summary>
         /// MPの割合
         /// </summary>
-        public float mpRatio;
+        public int mpRatio;
 
         /// <summary>
         /// 各属性の基礎攻撃力
@@ -358,9 +359,19 @@ public class JTestAIBase : MonoBehaviour
         public ElementalStats atk;
 
         /// <summary>
+        /// 全攻撃力の加算。
+        /// </summary>
+        public int dispAtk;
+
+        /// <summary>
         /// 各属性の基礎防御力
         /// </summary>
         public ElementalStats def;
+
+        /// <summary>
+        /// 全防御力の加算。
+        /// </summary>
+        public int dispDef;
 
         /// <summary>
         /// 現在位置。
@@ -389,6 +400,18 @@ public class JTestAIBase : MonoBehaviour
         public int brainEventBit;
 
         /// <summary>
+        /// バフやデバフなどの現在の効果
+        /// </summary>
+        public SpecialEffect nowEffect;
+
+        /// <summary>
+        /// AIが他者の行動を認識するためのイベントフラグ。
+        /// 列挙型AIEventFlagType　のビット演算に使う。
+        /// CombatManagerがフラグ管理はしてくれる
+        /// </summary>
+        public BrainEventFlagType brainEvent;
+
+        /// <summary>
         /// 既存のCharacterUpdateDataにCharacterBaseDataの値を適用する
         /// </summary>
         /// <param name="baseData">適用元のベースデータ</param>
@@ -411,7 +434,37 @@ public class JTestAIBase : MonoBehaviour
 
             actState = baseData.initialMove;
             brainEventBit = 0;
+
+            dispAtk = atk.ReturnSum();
+            dispDef = def.ReturnSum();
+
+
+            nowEffect = SpecialEffect.なし;
+            brainEvent = BrainEventFlagType.None;
         }
+    }
+
+    /// <summary>
+    /// キャラの行動を記録するためのデータ。
+    /// いらないかも。記録する代わりにチームヘイトを上げたりすれば行動には反映できるし。
+    /// 強力な攻撃をしたり、回復したりしたらチームヘイトが上がる仕組みを作る方がいいかも
+    /// </summary>
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ActionLogContainer
+    {
+        public CharacterActionLog log;
+
+        /// <summary>
+        /// 記録を保持する時間
+        /// </summary>
+        public float eventHoldTime;
+
+        /// <summary>
+        /// 行動を記録した時間。
+        /// 再び同じ行動が登録されたら更新する
+        /// </summary>
+        public float startTime;
     }
 
     #endregion
@@ -439,6 +492,11 @@ public class JTestAIBase : MonoBehaviour
     /// </summary>
     [HideInInspector]
     public long judgeCount = -1;
+
+    /// <summary>
+    /// ゲームオブジェクトのハッシュ値
+    /// </summary>
+    public int objecthash;
 
 
     /// <summary>
@@ -476,6 +534,30 @@ public class JTestAIBase : MonoBehaviour
     /// </summary>
     protected void Attackct()
     {
+
+    }
+
+
+    /// <summary>
+    /// 近くを範囲探査して敵情報を取得する処理のひな型
+    /// ここで範囲内に取得したキャラを10体までバッファして距離順でソート
+    /// </summary>
+    public void NearSearch()
+    {
+
+        unsafe
+        {
+            // スタックにバッファを確保（10体まで）
+            Span<RaycastHit2D> results = stackalloc RaycastHit2D[10];
+
+            //int hitCount = Physics.SphereCastNonAlloc(
+            //    CombatManager.instance.charaDataDictionary[objecthash].liveData.nowPosition,
+            //    20,
+            //    results,
+            //    0
+            //);
+
+        }
 
     }
 

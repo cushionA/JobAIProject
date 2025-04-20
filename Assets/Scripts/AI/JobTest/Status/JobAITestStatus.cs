@@ -2,6 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnityEngine;
+using static CombatManager;
 using static JTestAIBase;
 
 /// <summary>
@@ -18,22 +19,18 @@ public class JobAITestStatus : ScriptableObject
     /// ○○の時、攻撃・回復・支援・逃走・護衛など
     /// 対象が自分、味方、敵のどれかという区分と否定（以上が以内になったり）フラグの組み合わせで表現
     /// 行動のバリエーションはモードチェンジ、攻撃、回復などの具体的行動
+    /// 味方が死んだとき、は死亡状態で数秒キャラを残すことで、死亡を条件にしたフィルターにかかるようにするか。
     /// </summary>
     public enum ActJudgeCondition
     {
-        指定のヘイト値の敵がいる時,
-        対象が一定数の時,
-        HPが一定割合の対象がいる時,
-        設定距離に対象がいる時, 　//距離系の処理は別のやり方で事前にキャッシュを行う。AIの設定の範囲だけセンサーで調べる方法をとる
-        任意のタイプの対象がいる時,
-        対象が回復や支援を使用した時,// 回復魔法とかで回復した時に全体イベントを飛ばすか。
-        対象が大ダメージを受けた時,
-        対象が特定の特殊効果の影響を受けている時,//バフとかデバフ
-        対象が死亡した時,
-        対象が攻撃された時,
-        特定の属性で攻撃する対象がいる時,
-        特定の数の敵に狙われている時,// 陣営フィルタリングは有効
-        条件なし // 何も当てはまらなかった時の補欠条件。
+        指定のヘイト値の敵がいる時 = 1,
+        //対象が一定数の時 = 2, // フィルターも活用することで、ここでかなりの数の単純な条件はやれる。一体以上条件でタイプフィルターで対象のタイプ絞ったり
+        HPが一定割合の対象がいる時 = 2,
+        MPが一定割合の対象がいる時 = 3,
+        設定距離に対象がいる時 = 4, 　//距離系の処理は別のやり方で事前にキャッシュを行う。AIの設定の範囲だけセンサーで調べる方法をとる。判断時にやるようにする？
+        特定の属性で攻撃する対象がいる時 = 5,
+        特定の数の敵に狙われている時 = 6,// 陣営フィルタリングは有効
+        条件なし = 0 // 何も当てはまらなかった時の補欠条件。
     }
 
     /// <summary>
@@ -61,17 +58,20 @@ public class JobAITestStatus : ScriptableObject
     /// 判断の結果選択される行動のタイプ。
     /// 
     /// </summary>
+    [Flags]
     public enum ActState
     {
-        指定なし = 0,// ステート変更判断で使う。これ以外が条件ステータスにあるとステート変更する。
-        追跡 = 1,
-        逃走 = 2,
-        攻撃 = 3,
-        待機 = 4,// 攻撃後のクールタイム中など。この状態で動作する回避率を設定する？
-        防御 = 5,// 動き出す距離を設定できるようにする？ その場で基本ガードだけど、相手がいくらか離れたら動き出す、的な
-        支援 = 6,
-        回復 = 7,
-        護衛 = 8,
+        指定なし = 0,// ステートフィルター判断で使う。何も指定しない。
+        追跡 = 1 << 0,
+        逃走 = 1 << 1,
+        攻撃 = 1 << 2,
+        待機 = 1 << 3,// 攻撃後のクールタイム中など。この状態で動作する回避率を設定する？
+        防御 = 1 << 4,// 動き出す距離を設定できるようにする？ その場で基本ガードだけど、相手がいくらか離れたら動き出す、的な
+        支援 = 1 << 5,
+        回復 = 1 << 6,
+        集合 = 1 << 7,// 特定の味方の場所に行く。集合後に防御に移行するロジックを組めば護衛にならない？
+        状態変更 = 1 << 8, // たとえば攻撃→回復へと変更するような行動。これを実行した場合、またすぐに再判断をする。
+
         //遠慮 = 9// めちゃくちゃ狙われてる相手に対して、攻撃するかなーって迷ってる。
         // この状態はだんだんターゲットへのヘイト下がる。攻撃→遠慮→攻撃…を繰り返す。
         // ヘイトが関係ない条件でターゲットにした場合も攻撃頻度は落ちる。
@@ -89,18 +89,27 @@ public class JobAITestStatus : ScriptableObject
     /// </summary>
     public enum TargetSelectCondition
     {
-        距離,// ここの距離はOK
-        高度,
+        距離 = 99,// ここの距離はOK。未実装
+        高度 = 0,
         HP割合,
         HP,
-        攻撃力,
-        防御力,
-        キャラタイプ,// 割合や数値を示すint値にタイプを入れる。
-        弱点属性,// 割合や数値を示すint値にタイプを入れる。
         敵に狙われてる数,//一番狙われてるか、狙われてないか
-        属性攻撃力,//特定の属性の攻撃力が一番高い/低いヤツ
-        属性防御力,//特定の属性の攻撃力が一番高い/低いヤツ
-        特殊効果,//特定のバフやデバフがあるか/ないか
+        合計攻撃力,
+        合計防御力,
+        斬撃攻撃力,//特定の属性の攻撃力が一番高い/低いヤツ
+        刺突攻撃力,
+        打撃攻撃力,
+        炎攻撃力,
+        雷攻撃力,
+        光攻撃力,
+        闇攻撃力,
+        斬撃防御力,
+        刺突防御力,
+        打撃防御力,
+        炎防御力,
+        雷防御力,
+        光防御力,
+        闇防御力,
         指定なし_ヘイト値 // 基本の条件。対象の中で最もヘイト高い相手を攻撃する。
     }
 
@@ -198,7 +207,7 @@ public class JobAITestStatus : ScriptableObject
     /// 特殊状態
     /// </summary>
     [Flags]
-    public enum SpecialState
+    public enum SpecialEffect
     {
         ヘイト増大 = 1 << 1,
         ヘイト減少 = 1 << 2,
@@ -257,6 +266,16 @@ public class JobAITestStatus : ScriptableObject
         /// </summary>
         [Header("闇属性")]
         public int dark;
+
+        /// <summary>
+        /// 合計値を返す。
+        /// </summary>
+        /// <returns></returns>
+        public int ReturnSum()
+        {
+            return slash + pierce + strike + fire + lightning + light + dark;
+        }
+
     }
 
     /// <summary>
@@ -350,7 +369,7 @@ public class JobAITestStatus : ScriptableObject
         /// 特徴を示す。種類も包括
         /// </summary>
         [Header("キャラクター特徴")]
-        public CharacterFeature type;
+        public CharacterFeature feature;
 
         /// <summary>
         /// キャラの階級。<br/>
@@ -402,7 +421,7 @@ public class JobAITestStatus : ScriptableObject
         /// ここでヘイト以外の条件を指定した場合は、行動までセットで決める。
         /// </summary>
         [Header("行動条件データ")]
-        public TargetJudgeData targetCondition;
+        public TargetJudgeData[] targetCondition;
     }
 
     /// <summary>
@@ -422,15 +441,16 @@ public class JobAITestStatus : ScriptableObject
         /// 行動の条件。
         /// 対象の陣営と特徴を指定できる。
         /// </summary>
-        public ActJudgeData condition;
+        public ActJudgeData actCondition;
 
         /// <summary>
-        /// 行動の前提条件。
-        /// 自分の条件について指定できる。
-        /// HPが〇パーセントとか
-        /// ここ設定してくれれば不要な条件については判断しなくてよくなるしな。
+        /// 攻撃含むターゲット選択データ
+        /// 要素は一つだが、その代わり複雑な条件で指定可能
+        /// 特に指定ない場合のみヘイトで動く
+        /// ここでヘイト以外の条件を指定した場合は、行動までセットで決める。
         /// </summary>
-        public ActJudgeData selfCondition;
+        [Header("行動対象選択データ")]
+        public TargetJudgeData targetCondition;
 
     }
 
@@ -532,7 +552,7 @@ public class JobAITestStatus : ScriptableObject
 
         /// <summary>
         /// 使用する行動の番号。
-        /// 指定なし ( = -1)の場合は敵の条件から勝手に決める。
+        /// 指定なし ( = -1)の場合は敵の条件から勝手に決める。(ヘイトで決めた場合は-1の指定なしになる)
         /// そうでない場合はここまで設定する。
         /// 
         /// あるいはヘイト上昇倍率になる。
@@ -569,19 +589,78 @@ public class JobAITestStatus : ScriptableObject
         bool isAndFeatureCheck;
 
         /// <summary>
+        /// 対象の状態（バフ、デバフ）
+        /// 複数指定あり
+        /// </summary>
+        [Header("対象が持つ特殊効果")]
+        [SerializeField]
+        SpecialEffect targetEffect;
+
+        /// <summary>
+        /// このフラグが真の時、全部当てはまってないとダメ。
+        /// </summary>
+        [Header("特殊効果の判断方法")]
+        [SerializeField]
+        bool isAndEffectCheck;
+
+        /// <summary>
+        /// 対象の状態（逃走、攻撃など）
+        /// 複数指定あり
+        /// </summary>
+        [Header("対象の状態")]
+        [SerializeField]
+        ActState targetState;
+
+        /// <summary>
+        /// 対象のイベント状況（大ダメージを与えた、とか）でフィルタリング
+        /// 複数指定あり
+        /// </summary>
+        [Header("対象のイベント")]
+        [SerializeField]
+        BrainEventFlagType targetEvent;
+
+        /// <summary>
+        /// このフラグが真の時、全部当てはまってないとダメ。
+        /// </summary>
+        [Header("イベントの判断方法")]
+        [SerializeField]
+        bool isAndEventCheck;
+
+        /// <summary>
         /// 検査対象キャラクターの条件に当てはまるかをチェックする。
         /// </summary>
         /// <param name="belong"></param>
         /// <param name="feature"></param>
         /// <returns></returns>
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-        public bool IsPassFilter(CharacterSide belong, CharacterFeature feature)
+        public bool IsPassFilter(in CharacterData charaData)
         {
             // andかorで特徴条件判定
-            bool isFeature = isAndFeatureCheck ? ((targetFeature == 0) || (targetFeature & feature) == targetFeature) :
-                                                  ((targetFeature == 0) || (targetFeature & feature) > 0);
+            // 当てはまらないなら帰る。
+            if ( (isAndFeatureCheck ? ((targetFeature == 0) || (targetFeature & charaData.solidData.feature) == targetFeature) :
+                                                  ((targetFeature == 0) || (targetFeature & charaData.solidData.feature) > 0)) == false )
+            {
+                return false;
+            }
 
-            return ((targetType == 0) || (targetType & belong) > 0) && isFeature;
+            // 特殊効果判断
+            // 当てはまらないなら帰る。
+            if ( (isAndEffectCheck ? ((targetEffect == 0) || (targetEffect & charaData.liveData.nowEffect) == targetEffect) :
+                                      ((targetEffect == 0) || (targetEffect & charaData.liveData.nowEffect) > 0)) == false )
+            {
+                return false;
+            }
+
+            // イベント判断
+            // 当てはまらないなら帰る。
+            if ( (isAndEventCheck ? ((targetEvent == 0) || (targetEvent & charaData.liveData.brainEvent) == targetEvent) :
+                                      ((targetEvent == 0) || (targetEvent & charaData.liveData.brainEvent) > 0)) == false )
+            {
+                return false;
+            }
+
+            // 残りの条件も判定。
+            return ((targetType == 0 || ((targetType & charaData.liveData.belong) > 0)) && (targetState == 0 || ((targetState & charaData.liveData.actState) > 0)));
         }
 
     }

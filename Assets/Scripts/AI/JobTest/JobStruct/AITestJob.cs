@@ -8,6 +8,12 @@ using System.ComponentModel;
 using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
 using System.Runtime.CompilerServices;
 using static JobAITestStatus;
+using static AiFunctionLibrary;
+using Unity.Burst;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System;
+using Unity.VisualScripting.YamlDotNet.Core.Tokens;
+using Unity.Plastic.Newtonsoft.Json.Linq;
 
 /// <summary>
 /// AIが判断を行うJob
@@ -48,6 +54,16 @@ public class AITestJob : IJobParallelFor
     public NativeArray<int> relationMap;
 
     /// <summary>
+    /// 関数ポインタの配列から処理する
+    /// </summary>
+    [ReadOnly]
+    public NativeArray<FunctionPointer<SkipJudgeDelegate>> skipFunctions;
+
+    [ReadOnly]
+    public NativeArray<FunctionPointer<TargetJudgeDelegate>> targetFunctions;
+
+
+    /// <summary>
     /// characterDataとjudgeResultのインデックスをベースに処理する。
     /// </summary>
     /// <param name="index"></param>
@@ -61,15 +77,15 @@ public class AITestJob : IJobParallelFor
 
         // 判断時間が経過したかを確認。
         // 経過してないなら処理しない。
+        // あるいはターゲット消えた場合も判定したい。チームヘイトに含まれてなければ。それだと味方がヘイトの時どうするの。
         if ( nowTime - characterData[index].lastJudgeTime < characterData[index].brainData[nowMode].judgeInterval )
         {
             resultData.result = 0;
 
             // 移動方向判断だけはする。
-            if ( nowTime - characterData[index].lastMoveJudgeTime < characterData[index].moveJudgeInterval )
-            {
+            //　正確には距離判定。
+            // ハッシュ値持ってんだからジョブから出た後でやろう。
 
-            }
 
             // 結果を設定。
             judgeResult[index] = resultData;
@@ -98,14 +114,15 @@ public class AITestJob : IJobParallelFor
         // で、現段階で一番優先度が高い満たした条件を保存しておく
         // その状態で最後まで走査してヘイト値設定も完了する。
         // ちなみにヘイト値設定は自分がヘイト持ってる相手のヘイトを足した値を確認するだけだろ
-        // ヘイト減少の仕組み考えないとな。30パーセントずつ減らす？　あーーー
+        // ヘイト減少の仕組み考えないとな。30パーセントずつ減らす？　あーーーーーーーー
 
         // 行動条件の中で前提を満たしたものを取得するビット
         // なお、実際の判断時により優先的な条件が満たされた場合は上位ビットはまとめて消す。
         int enableCondition = 0;
 
         // 前提となる自分についてのスキップ条件を確認。
-        for ( int i = 0; i < characterData[index].brainData[nowMode].actCondition.Length; i++ )
+        // 最後の条件は補欠条件なので無視
+        for ( int i = 0; i < characterData[index].brainData[nowMode].actCondition.Length - 1; i++ )
         {
             if ( characterData[index].brainData[nowMode].actCondition[i].skipData.skipCondition == JobAITestStatus.SkipJudgeCondition.条件なし )
             {
@@ -114,22 +131,77 @@ public class AITestJob : IJobParallelFor
 
             SkipJudgeData skipData = characterData[index].brainData[nowMode].actCondition[i].skipData;
 
-            if ( skipData.skipCondition == SkipJudgeCondition.自分のHPが一定割合の時 )
+            // スキップ条件を解釈して判断
+            if ( skipFunctions[(int)skipData.skipCondition].Invoke(skipData, characterData[index]) )
             {
-
-            }
-            else if ( skipData.skipCondition == SkipJudgeCondition.自分のMPが一定割合の時 )
-            {
-
+                enableCondition &= 1 << i;
             }
 
         }
 
         // 条件を満たした行動の中で最も優先的なもの。
-        int selectmove;
+        // 初期値は最後の条件、つまり条件なしの補欠条件
+        int selectMove = characterData[index].brainData[nowMode].actCondition.Length - 1;
 
+        // ヘイト条件確認用の一時バッファ
+        NativeArray<Vector2Int> hateIndex = new NativeArray<Vector2Int>(characterData[index].brainData[nowMode].hateCondition.Length, Allocator.Temp);
+        NativeArray<TargetJudgeData> hateCondition = characterData[index].brainData[nowMode].hateCondition;
+
+        // ヘイト確認バッファの初期化
+        for ( int i = 0; i < hateIndex.Length; i++ )
+        {
+            if ( hateCondition[i].isInvert )
+            {
+                hateIndex[i].Set(int.MaxValue, -1);
+            }
+            else
+            {
+                hateIndex[i].Set(int.MinValue, -1);
+            }
+        }
+
+        // キャラデータを確認する。
         for ( int i = 0; i < characterData.Length; i++ )
         {
+            // 自分はスキップ
+            if ( index == i )
+            {
+                continue;
+            }
+
+            // まずヘイト判断。
+            // 各ヘイト条件について、条件更新を記録する。
+            for ( int j = 0; j < hateCondition.Length; j++ )
+            {
+                int value = hateIndex[j].x;
+                if ( targetFunctions[(int)hateCondition[j].judgeCondition].Invoke(hateCondition[j], characterData[i], ref value) )
+                {
+                    hateIndex[j].Set(value, i);
+                }
+            }
+
+            // 次に行動判断。
+            // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
+            if ( enableCondition != 0 )
+            {
+                for ( int j = 0; j < characterData[index].brainData[nowMode].actCondition.Length - 1; j++ )
+                {
+                    // ある条件満たしたらbreakして、以降はそれ以下の条件もう見ない。
+                    if ( CheckActCondition(characterData[index].brainData[nowMode].actCondition[j], characterData[index], characterData[i]) )
+                    {
+                        selectMove = i;
+
+                        // enableConditionのbitも消す。
+                        // i桁目までのビットをすべて1にするマスクを作成
+                        // (1 << (i + 1)) - 1 は 0から i-1桁目までのビットがすべて1
+                        int mask = (1 << i) - 1;
+
+                        // マスクと元の値の論理積を取ることで上位ビットをクリア
+                        enableCondition = enableCondition & mask;
+                        break;
+                    }
+                }
+            }
 
         }
 
@@ -147,9 +219,163 @@ public class AITestJob : IJobParallelFor
         // それよりは近距離の物理センサーで数秒に一回検査した方がいい。Nonalloc系のサーチでバッファに stack allocも使おう
         // 敵百体以上増やすならトリガーはまずいかも
 
-        // 結果を設定。
+
+        // 最も条件に近いターゲットを確認する。
+        // 比較用初期値はInvertによって変動。
+        TargetJudgeData targetJudgeData = characterData[index].brainData[nowMode].actCondition[selectMove].targetCondition;
+        int nowValue = targetJudgeData.isInvert ? int.MaxValue : int.MinValue;
+        int newTargetHash = 0;
+
+        // ターゲット選定ループ
+        for ( int i = 0; i < characterData.Length; i++ )
+        {
+            // ハッシュを取得
+            if ( targetFunctions[(int)targetJudgeData.judgeCondition].Invoke(targetJudgeData, characterData[i], ref nowValue) )
+            {
+                newTargetHash = characterData[i].hashCode;
+            }
+        }
+
+        // ここでターゲット見つからなければ待機に移行するか。
+
+        // 判断結果を設定。
         judgeResult[index] = resultData;
+
+        // テスト仕様記録
+        // 要素数は10 ～ 1000で
+        // ステータスはいくつかベースとなるテンプレのCharacterData作って、その数値をいじるコード書いてやる。
+        // で、Jobシステムをまんまベタ移植した普通のクラスを作成して、速度を比較
+        // 最後は二つのテストにより作成されたpublic UnsafeList<MovementInfo> judgeResult　の同一性をかくにんして、精度のチェックまで終わり
+
     }
+
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="conditions"></param>
+    /// <param name="charaData"></param>
+    /// <param name="nowHate"></param>
+    [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
+    public bool CheckActCondition(in BehaviorData condition, in CharacterData myData, in CharacterData targetData)
+    {
+        bool result = true;
+
+        // フィルター通過しないなら戻る。
+        if ( !condition.actCondition.filter.IsPassFilter(targetData) )
+        {
+            return false;
+        }
+
+        switch ( condition.actCondition.judgeCondition )
+        {
+            case ActJudgeCondition.指定のヘイト値の敵がいる時:
+
+                int targetHash = targetData.hashCode;
+                int targetHate = 0;
+
+                if ( myData.personalHate.ContainsKey(targetHash) )
+                {
+                    targetHate += myData.personalHate[targetHash];
+                }
+
+                if ( teamHate[(int)myData.liveData.belong].ContainsKey(targetHash) )
+                {
+                    targetHate += teamHate[(int)myData.liveData.belong][targetHash];
+                }
+
+                // 通常は以上、逆の場合は以下
+                if ( !condition.actCondition.isInvert )
+                {
+                    result = targetHate >= condition.actCondition.judgeValue;
+                }
+                else
+                {
+                    result = targetHate <= condition.actCondition.judgeValue;
+                }
+
+                return result;
+
+            //case ActJudgeCondition.対象が一定数の時:
+            //    return HasRequiredNumberOfTargets(context);
+
+            case ActJudgeCondition.HPが一定割合の対象がいる時:
+
+                // 通常は以上、逆の場合は以下
+                if ( !condition.actCondition.isInvert )
+                {
+                    result = targetData.liveData.hpRatio >= condition.actCondition.judgeValue;
+                }
+                else
+                {
+                    result = targetData.liveData.hpRatio <= condition.actCondition.judgeValue;
+                }
+
+                return result;
+
+            case ActJudgeCondition.MPが一定割合の対象がいる時:
+
+                // 通常は以上、逆の場合は以下
+                if ( !condition.actCondition.isInvert )
+                {
+                    result = targetData.liveData.mpRatio >= condition.actCondition.judgeValue;
+                }
+                else
+                {
+                    result = targetData.liveData.mpRatio <= condition.actCondition.judgeValue;
+                }
+                return result;
+
+            case ActJudgeCondition.設定距離に対象がいる時:
+
+                // 二乗の距離で判定する。
+                int judgeDist = condition.actCondition.judgeValue * condition.actCondition.judgeValue;
+
+                // 今の距離の二乗。
+                int distance = (int)(Mathf.Pow(targetData.liveData.nowPosition.x - myData.liveData.nowPosition.x, 2) +
+                               Mathf.Pow(targetData.liveData.nowPosition.y - myData.liveData.nowPosition.y, 2));
+
+                // 通常は以上、逆の場合は以下
+                if ( !condition.actCondition.isInvert )
+                {
+                    result = distance >= judgeDist;
+                }
+                else
+                {
+                    result = distance <= judgeDist;
+                }
+                return result;
+
+            case ActJudgeCondition.特定の属性で攻撃する対象がいる時:
+
+                // 通常はいる時、逆の場合はいないとき
+                if ( !condition.actCondition.isInvert )
+                {
+                    result = ((int)targetData.solidData.attackElement & condition.actCondition.judgeValue) > 0;
+                }
+                else
+                {
+                    result = ((int)targetData.solidData.attackElement & condition.actCondition.judgeValue) == 0;
+                }
+                return result;
+
+            case ActJudgeCondition.特定の数の敵に狙われている時:
+                // 通常は以上、逆の場合は以下
+                if ( !condition.actCondition.isInvert )
+                {
+                    result = targetData.targetingCount >= condition.actCondition.judgeValue;
+                }
+                else
+                {
+                    result = targetData.targetingCount <= condition.actCondition.judgeValue;
+                }
+                return result;
+
+            default: // 条件なし (0) または未定義の値
+                return result;
+        }
+    }
+
 
     /// <summary>
     /// 二つのチームが敵対しているかをチェックするメソッド。

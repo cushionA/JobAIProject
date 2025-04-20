@@ -13,10 +13,10 @@ using static Unity.Collections.AllocatorManager;
 /// ゲームオブジェクトのGetHashCode()をキーとし、高効率に管理するデータ辞書
 /// UnityではGetHashCode()がGetInstanceID()と同じ値を返すため、一意性が保証されている。
 /// UnsafeListを使用してGC負荷を削減
-/// 正直T2はジェネリック型にする意味あんまりない（キャラクターコントローラーの型だから）いずれその方針で最適化する
+/// 正直T2は、特化することを考えるとジェネリック型にする意味あんまりない（そのゲームのキャラクターコントローラーの型だから）いずれその方針で最適化する
 /// </summary>
 /// <typeparam name="T1">格納する主データの型（JobSystemを意識したunmanaged制約付き）</typeparam>
-/// <typeparam name="T2">格納する副データの型（JobSystemを意識したunmanaged制約付き）</typeparam>
+/// <typeparam name="T2">格納する副データの型（Unmanaged制約なしのキャラクターコントローラー）</typeparam>
 public class CharacterDataDictionary<T1, T2> : IDisposable
     where T1 : unmanaged
     where T2 : class
