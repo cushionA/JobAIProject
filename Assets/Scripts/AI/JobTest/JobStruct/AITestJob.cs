@@ -20,7 +20,8 @@ using Unity.Plastic.Newtonsoft.Json.Linq;
 /// 流れとしてはヘイト判断（ここで一番憎いヤツは出しておく）→行動判断→対象設定（攻撃/防御の場合ヘイト、それ以外の場合は任意条件を優先順に判断）
 /// ヘイト処理はチームヘイトが一番高いやつを陣営ごとに出しておいて、個人ヘイト足したらそれを超えるか、で見ていこうか
 /// </summary>
-public class AITestJob : IJobParallelFor
+[BurstCompile]
+public struct AITestJob : IJobParallelFor
 {
     /// <summary>
     /// 読み取り専用のチームごとの全体ヘイト
@@ -78,14 +79,15 @@ public class AITestJob : IJobParallelFor
         // 判断時間が経過したかを確認。
         // 経過してないなら処理しない。
         // あるいはターゲット消えた場合も判定したい。チームヘイトに含まれてなければ。それだと味方がヘイトの時どうするの。
+        // キャラ死亡時に全キャラに対しターゲットしてるかどうかを確認するようにしよう。で、ターゲットだったら前回判断時間をマイナスにする。
         if ( nowTime - characterData[index].lastJudgeTime < characterData[index].brainData[nowMode].judgeInterval )
         {
-            resultData.result = 0;
+            resultData.result = JudgeResult.何もなし;
 
             // 移動方向判断だけはする。
             //　正確には距離判定。
             // ハッシュ値持ってんだからジョブから出た後でやろう。
-
+            // Resultを解釈して
 
             // 結果を設定。
             judgeResult[index] = resultData;
@@ -95,8 +97,6 @@ public class AITestJob : IJobParallelFor
 
         // characterData[index].brainData[nowMode].judgeInterval みたいな値は何回も使うなら一時変数に保存していい。
 
-
-        int maxHate = -1; // 一番ヘイト高いやつを記録。フィルタリングしつつね
 
         // まず判断時間の経過を確認
         // 次に線形探索で行動間隔の確認を行いつつ、敵にはヘイト判断も行う。
@@ -226,17 +226,136 @@ public class AITestJob : IJobParallelFor
         int nowValue = targetJudgeData.isInvert ? int.MaxValue : int.MinValue;
         int newTargetHash = 0;
 
-        // ターゲット選定ループ
-        for ( int i = 0; i < characterData.Length; i++ )
+        // 状態変更の場合ここで戻る。
+        if ( targetJudgeData.judgeCondition == TargetSelectCondition.不要_状態変更 )
         {
-            // ハッシュを取得
-            if ( targetFunctions[(int)targetJudgeData.judgeCondition].Invoke(targetJudgeData, characterData[i], ref nowValue) )
+            // 指定状態に移行
+            resultData.result = JudgeResult.新しく判断をした;
+            resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
+
+            // 判断結果を設定。
+            judgeResult[index] = resultData;
+            return;
+        }
+
+        // それ以外であればターゲットを判断
+        if ( targetJudgeData.judgeCondition == TargetSelectCondition.距離 )
+        {
+            // 自分の位置をキャッシュ
+            float myPositionX = characterData[index].liveData.nowPosition.x;
+            float myPositionY = characterData[index].liveData.nowPosition.y;
+
+            // ターゲット選定ループ
+            for ( int i = 0; i < characterData.Length; i++ )
             {
-                newTargetHash = characterData[i].hashCode;
+                // 自分自身か、フィルターをパスできなければ戻る。
+                if ( i == index || !targetJudgeData.filter.IsPassFilter(characterData[i]) )
+                {
+                    continue;
+                }
+
+                // マンハッタン距離で遠近判断
+                float distance = Math.Abs(myPositionX - characterData[i].liveData.nowPosition.x) + Math.Abs(myPositionY - characterData[i].liveData.nowPosition.y);
+
+                // 一番高いやつを求める。
+                if ( !targetJudgeData.isInvert )
+                {
+                    if ( distance > nowValue )
+                    {
+                        nowValue = (int)distance;
+                        newTargetHash = characterData[i].hashCode;
+                    }
+                }
+                // 一番低いやつを求める。
+                else
+                {
+                    if ( distance < nowValue )
+                    {
+                        nowValue = (int)distance;
+                        newTargetHash = characterData[i].hashCode;
+                    }
+                }
+
+            }
+        }
+        else if ( targetJudgeData.judgeCondition == TargetSelectCondition.自分 )
+        {
+            newTargetHash = characterData[index].hashCode;
+        }
+        // 何かしらのシングルトンにプレイヤーのHashは持たせとこ
+        else if ( targetJudgeData.judgeCondition == TargetSelectCondition.プレイヤー )
+        {
+            // newTargetHash = characterData[i].hashCode;
+        }
+        else if ( targetJudgeData.judgeCondition == TargetSelectCondition.指定なし_ヘイト値 )
+        {
+            // ターゲット選定ループ
+            for ( int i = 0; i < characterData.Length; i++ )
+            {
+                // 自分自身か、フィルターをパスできなければ戻る。
+                if ( i == index || !targetJudgeData.filter.IsPassFilter(characterData[i]) )
+                {
+                    continue;
+                }
+
+                // ヘイト値を確認
+                int targetHash = characterData[i].hashCode;
+                int targetHate = 0;
+
+                if ( characterData[index].personalHate.ContainsKey(targetHash) )
+                {
+                    targetHate += (int)characterData[index].personalHate[targetHash];
+                }
+
+                if ( teamHate[(int)characterData[index].liveData.belong].ContainsKey(targetHash) )
+                {
+                    targetHate += teamHate[(int)characterData[index].liveData.belong][targetHash];
+                }
+
+                // 一番高いやつを求める。
+                if ( !targetJudgeData.isInvert )
+                {
+                    if ( targetHate > nowValue )
+                    {
+                        nowValue = targetHate;
+                        newTargetHash = characterData[i].hashCode;
+                    }
+                }
+                // 一番低いやつを求める。
+                else
+                {
+                    if ( targetHate < nowValue )
+                    {
+                        nowValue = targetHate;
+                        newTargetHash = characterData[i].hashCode;
+                    }
+                }
+
+            }
+        }
+        // 通常のターゲット選定
+        else
+        {
+
+            // ターゲット選定ループ
+            for ( int i = 0; i < characterData.Length; i++ )
+            {
+                // ハッシュを取得
+                // ほんとはここでターゲットカウントで狙われ過ぎのやつ弾いた方がいい
+                if ( targetFunctions[(int)targetJudgeData.judgeCondition].Invoke(targetJudgeData, characterData[i], ref nowValue) )
+                {
+                    newTargetHash = characterData[i].hashCode;
+                }
             }
         }
 
-        // ここでターゲット見つからなければ待機に移行するか。
+        // ここでターゲット見つかってなければ待機に移行。
+        if ( newTargetHash == 0 )
+        {
+            // 待機に移行
+            resultData.result = JudgeResult.新しく判断をした;
+            resultData.actNum = (int)ActState.待機;
+        }
 
         // 判断結果を設定。
         judgeResult[index] = resultData;
@@ -296,6 +415,7 @@ public class AITestJob : IJobParallelFor
 
                 return result;
 
+            // 集計は廃止
             //case ActJudgeCondition.対象が一定数の時:
             //    return HasRequiredNumberOfTargets(context);
 

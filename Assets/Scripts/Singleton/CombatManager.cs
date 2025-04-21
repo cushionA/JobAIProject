@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 using UnityEngine;
 using static JobAITestStatus;
 using static JTestAIBase;
@@ -34,7 +35,7 @@ public class CombatManager : MonoBehaviour, IDisposable
         //誰かを倒した = 1 << 4,        // 敵または味方を倒した
         //指揮官を倒した = 1 << 5,      // 指揮官を倒した
         攻撃対象指定 = 1 << 5,        // 指揮官による攻撃対象の指定
-        威圧 = 1 << 6,//威圧状態だと敵が怖がる？
+        威圧 = 1 << 6,//威圧状態だと敵が怖がる？ これはバッドステータスでもいいとは思う
     }
 
     /// <summary>
@@ -169,7 +170,8 @@ public class CombatManager : MonoBehaviour, IDisposable
     /// </summary>
     void Update()
     {
-
+        // 毎フレームジョブ実行
+        BrainJobAct();
     }
 
     /// <summary>
@@ -267,7 +269,35 @@ public class CombatManager : MonoBehaviour, IDisposable
         teamHate.Dispose();
         relationMap.Dispose();
 
+        // デリゲート配列も責任をもって破棄
+        AiFunctionLibrary.targetFunctions.Dispose();
+        AiFunctionLibrary.skipFunctions.Dispose();
+
         Destroy(instance);
+    }
+
+    /// <summary>
+    /// ジョブを実行する。
+    /// </summary>
+    private void BrainJobAct()
+    {
+        AITestJob brainJob = new AITestJob
+        {
+            // データの引き渡し。
+            relationMap = relationMap,
+            characterData = this.charaDataDictionary.GetInternalList1ForJob(),
+            teamHate = this.teamHate,
+            targetFunctions = AiFunctionLibrary.targetFunctions,
+            skipFunctions = AiFunctionLibrary.skipFunctions,
+            nowTime = GameManager.instance.NowTime,
+            judgeResult = this.judgeResult
+        };
+
+        JobHandle handle = brainJob.Schedule(brainJob.characterData.Length, 64);
+
+        // ジョブの完了を待機
+        handle.Complete();
+
     }
 
 }
