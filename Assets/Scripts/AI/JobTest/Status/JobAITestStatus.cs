@@ -1,6 +1,10 @@
+using Sirenix.OdinInspector;
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Unity.Collections;
 using UnityEngine;
 using static CombatManager;
 using static JTestAIBase;
@@ -10,7 +14,7 @@ using static JTestAIBase;
 /// メモリキャッシュを意識。
 /// </summary>
 [CreateAssetMenu(fileName = "JobAITestStatus", menuName = "Scriptable Objects/JobAITestStatus")]
-public class JobAITestStatus : ScriptableObject
+public class JobAITestStatus : SerializedScriptableObject
 {
     #region Enum定義
 
@@ -150,10 +154,10 @@ public class JobAITestStatus : ScriptableObject
     /// </summary>
     public enum CharacterSide
     {
-        プレイヤー = 1,// 味方
-        魔物 = 2,// 一般的な敵
-        その他 = 3,// それ以外
-        指定なし = 0
+        プレイヤー = 0,// 味方
+        魔物 = 1,// 一般的な敵
+        その他 = 2,// それ以外
+        指定なし = 3
     }
 
 
@@ -173,7 +177,6 @@ public class JobAITestStatus : ScriptableObject
         闇属性 = 1 << 4,
         炎属性 = 1 << 5,
         雷属性 = 1 << 6,
-        弱点属性 = 1 << 7,//敵や味方の弱点属性をサーチして代わりに使う
         指定なし = 0
     }
 
@@ -382,6 +385,16 @@ public class JobAITestStatus : ScriptableObject
         /// </summary>
         [Header("チーム内での階級")]
         public CharacterRank rank;
+
+        /// <summary>
+        /// この数値以上の敵から狙われている相手がターゲットになった場合、一旦次の判断までは待機になる
+        /// その次の判断でやっぱり一番ヘイト高ければ狙う。(狙われまくってる相手へのヘイトは下がるので、普通はその次の判断でべつのやつが狙われる)
+        /// 様子伺う、みたいなステート入れるか専用で
+        /// 一定以上に狙われてる相手かつ、様子伺ってるキャラの場合だけヘイト下げるようにしよう。
+        /// </summary>
+        [Header("ターゲット上限")]
+        [Tooltip("この数値以上の敵から狙われている相手が攻撃対象になった場合、一旦次の判断までは待機になる")]
+        public int targetingLimit;
     }
 
     /// <summary>
@@ -398,9 +411,9 @@ public class JobAITestStatus : ScriptableObject
         public float judgeInterval;
 
         /// <summary>
-        /// 行動条件データ
+        /// 行動関連の設定データ
         /// </summary>
-        [Header("行動条件データ")]
+        [Header("行動設定")]
         public BehaviorData[] actCondition;
 
         /// <summary>
@@ -410,22 +423,6 @@ public class JobAITestStatus : ScriptableObject
         [Header("ヘイト条件データ")]
         public TargetJudgeData[] hateCondition;
 
-        /// <summary>
-        /// この数値以上の敵から狙われている相手がターゲットになった場合、一旦次の判断までは待機になる
-        /// その次の判断でやっぱり一番ヘイト高ければ狙う。(狙われまくってる相手へのヘイトは下がるので、普通はその次の判断でべつのやつが狙われる)
-        /// 様子伺う、みたいなステート入れるか専用で
-        /// 一定以上に狙われてる相手かつ、様子伺ってるキャラの場合だけヘイト下げるようにしよう。
-        /// </summary>
-        public int targetingLimit;
-
-        /// <summary>
-        /// 攻撃含む行動条件データ.
-        /// 要素は一つだが、その代わり複雑な条件で指定可能
-        /// 特に指定ない場合のみヘイトで動く
-        /// ここでヘイト以外の条件を指定した場合は、行動までセットで決める。
-        /// </summary>
-        [Header("行動条件データ")]
-        public TargetJudgeData[] targetCondition;
     }
 
     /// <summary>
@@ -439,12 +436,14 @@ public class JobAITestStatus : ScriptableObject
         /// <summary>
         /// 行動をスキップするための条件。
         /// </summary>
+        [TabGroup(group: "AI挙動", tab: "スキップ条件")]
         public SkipJudgeData skipData;
 
         /// <summary>
         /// 行動の条件。
         /// 対象の陣営と特徴を指定できる。
         /// </summary>
+        [TabGroup(group: "AI挙動", tab: "行動条件")]
         public ActJudgeData actCondition;
 
         /// <summary>
@@ -453,9 +452,8 @@ public class JobAITestStatus : ScriptableObject
         /// 特に指定ない場合のみヘイトで動く
         /// ここでヘイト以外の条件を指定した場合は、行動までセットで決める。
         /// </summary>
-        [Header("行動対象選択データ")]
+        [TabGroup(group: "AI挙動", tab: "対象選択条件")]
         public TargetJudgeData targetCondition;
-
     }
 
     /// <summary>
@@ -475,6 +473,7 @@ public class JobAITestStatus : ScriptableObject
         /// 判断に使用する数値。
         /// 条件によってはenumを変換した物だったりする。
         /// </summary>
+        [Header("基準となる値")]
         public int judgeValue;
 
         /// <summary>
@@ -482,6 +481,7 @@ public class JobAITestStatus : ScriptableObject
         /// 以上は以内になるなど
         /// </summary>
         [Header("基準反転フラグ")]
+        [MarshalAs(UnmanagedType.U1)]
         public bool isInvert;
 
     }
@@ -503,6 +503,7 @@ public class JobAITestStatus : ScriptableObject
         /// 判断に使用する数値。
         /// 条件によってはenumを変換した物だったりする。
         /// </summary>
+        [Header("基準となる値")]
         public int judgeValue;
 
         /// <summary>
@@ -510,12 +511,14 @@ public class JobAITestStatus : ScriptableObject
         /// 以上は以内になるなど
         /// </summary>
         [Header("基準反転フラグ")]
+        [MarshalAs(UnmanagedType.U1)]
         public bool isInvert;
 
         /// <summary>
         /// これが指定なし、以外だとステート変更を行う。
         /// よって行動判断はスキップ
         /// </summary>
+        [Header("変更先のモード（変更する場合）")]
         public ActState stateChange;
 
         /// <summary>
@@ -545,6 +548,7 @@ public class JobAITestStatus : ScriptableObject
         /// 以上は以内になるなど
         /// </summary>
         [Header("基準反転フラグ")]
+        [MarshalAs(UnmanagedType.U1)]
         public bool isInvert;
 
         /// <summary>
@@ -561,12 +565,16 @@ public class JobAITestStatus : ScriptableObject
         /// 
         /// あるいはヘイト上昇倍率になる。
         /// </summary>
+        [Header("ヘイト倍率or使用する行動のNo")]
+        [Tooltip("行動番号で-1を指定した場合、AIが対象の情報から行動を決める")]
         public float useAttackOrHateNum;
     }
 
     /// <summary>
     /// 行動条件や対象設定条件で検査対象をフィルターするための構造体
     /// </summary>
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
     public struct TargetFilter
     {
         /// <summary>
@@ -590,6 +598,7 @@ public class JobAITestStatus : ScriptableObject
         /// </summary>
         [Header("特徴の判断方法")]
         [SerializeField]
+        [MarshalAs(UnmanagedType.U1)]
         bool isAndFeatureCheck;
 
         /// <summary>
@@ -605,6 +614,7 @@ public class JobAITestStatus : ScriptableObject
         /// </summary>
         [Header("特殊効果の判断方法")]
         [SerializeField]
+        [MarshalAs(UnmanagedType.U1)]
         bool isAndEffectCheck;
 
         /// <summary>
@@ -628,7 +638,24 @@ public class JobAITestStatus : ScriptableObject
         /// </summary>
         [Header("イベントの判断方法")]
         [SerializeField]
+        [MarshalAs(UnmanagedType.U1)]
         bool isAndEventCheck;
+
+        /// <summary>
+        /// 対象の弱点属性でフィルタリング
+        /// 複数指定あり
+        /// </summary>
+        [Header("対象の弱点")]
+        [SerializeField]
+        Element targetWeakPoint;
+
+        /// <summary>
+        /// 対象が使う属性でフィルタリング
+        /// 複数指定あり
+        /// </summary>
+        [Header("対象の使用属性")]
+        [SerializeField]
+        Element targetUseElement;
 
         /// <summary>
         /// 検査対象キャラクターの条件に当てはまるかをチェックする。
@@ -664,7 +691,8 @@ public class JobAITestStatus : ScriptableObject
             }
 
             // 残りの条件も判定。
-            return ((targetType == 0 || ((targetType & charaData.liveData.belong) > 0)) && (targetState == 0 || ((targetState & charaData.liveData.actState) > 0)));
+            return ((targetType == 0 || ((targetType & charaData.liveData.belong) > 0)) && (targetState == 0 || ((targetState & charaData.liveData.actState) > 0))
+                && (targetWeakPoint == 0 || ((targetWeakPoint & charaData.solidData.weakPoint) > 0)) && (targetUseElement == 0 || ((targetUseElement & charaData.solidData.attackElement) > 0)));
         }
 
     }
@@ -806,7 +834,7 @@ public class JobAITestStatus : ScriptableObject
     /// モードごとにモードEnumをint変換した数をインデックスにした配列になる。
     /// </summary>
     [Header("キャラAIの設定")]
-    public CharacterBrainStatus[] brainData;
+    public ActStateBrainDictionary brainData;
 
     /// <summary>
     /// 移動速度などのデータ
@@ -821,8 +849,9 @@ public class JobAITestStatus : ScriptableObject
     public AttackData[] attackData;
 
     /// <summary>
-    /// AIの移動方向変化判断間隔
+    /// AIの移動判断間隔
     /// </summary>
     [Header("移動判断間隔")]
     public float moveJudgeInterval;
+
 }

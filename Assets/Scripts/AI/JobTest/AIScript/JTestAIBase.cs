@@ -162,11 +162,12 @@ public class JTestAIBase : MonoBehaviour
         /// <param name="gameObject"></param>
         public CharacterData(JobAITestStatus status, GameObject gameObject)
         {
-            brainData = new NativeArray<CharacterBrainStatusForJob>(status.brainData.Length, Allocator.Persistent);
+            brainData = new NativeHashMap<int, CharacterBrainStatusForJob>(status.brainData.Count, Allocator.Persistent);
 
-            for ( int i = 0; i < status.brainData.Length; i++ )
+            foreach ( var item in status.brainData )
             {
-                brainData[i].ConvertToJobFormat(status.brainData[i], Allocator.Persistent);
+                CharacterBrainStatusForJob newData = new CharacterBrainStatusForJob(item.Value, Allocator.Persistent);
+                brainData.Add((int)item.Key, newData);
             }
 
             hashCode = gameObject.GetHashCode();
@@ -192,7 +193,7 @@ public class JTestAIBase : MonoBehaviour
         /// キャラのAIの設定。(Jobバージョン)
         /// モードごとにモードEnumをint変換した数をインデックスにした配列になる。
         /// </summary>
-        public NativeArray<CharacterBrainStatusForJob> brainData;
+        public NativeHashMap<int, CharacterBrainStatusForJob> brainData;
 
         /// <summary>
         /// 更新されうるデータ。
@@ -297,7 +298,7 @@ public class JTestAIBase : MonoBehaviour
         /// </summary>
         /// <param name="source">移植元のキャラクターブレインステータス</param>
         /// <param name="allocator">NativeArrayに使用するアロケータ</param>
-        public void ConvertToJobFormat(in CharacterBrainStatus source, Allocator allocator)
+        public CharacterBrainStatusForJob(in CharacterBrainStatus source, Allocator allocator)
         {
 
             // 基本プロパティをコピー
@@ -559,6 +560,11 @@ public class JTestAIBase : MonoBehaviour
 
         }
 
+    }
+
+    public CharacterData MakeTestData()
+    {
+        return new CharacterData(status, this.gameObject);
     }
 
 }

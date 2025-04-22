@@ -9,7 +9,8 @@
         "Unity.Addressables",
         "Unity.Collections",
         "MyCode",
-        "Unity.ResourceManager"
+        "Unity.ResourceManager",
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [

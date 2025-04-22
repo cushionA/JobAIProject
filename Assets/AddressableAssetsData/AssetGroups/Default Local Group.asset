@@ -15,6 +15,11 @@ MonoBehaviour:
   m_GroupName: Default Local Group
   m_GUID: ae493fc45c571774da5cfae690924430
   m_SerializeEntries:
+  - m_GUID: 017381438a5d589438487cb50c0ca161
+    m_Address: Assets/Scripts/AI/JobTest/Status/TypeAJobStatus.asset
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 1777f5d9a7f784b44b430b50eb5b8256
     m_Address: Assets/Prefab/TestPrefab/MyDicTest.prefab
     m_ReadOnly: 0
@@ -25,8 +30,18 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 20c834d5e02e08440a249a126541c0c6
+    m_Address: Assets/Prefab/JobAI/TypeA.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 20f41a4344de335409bfdfcc981489c9
     m_Address: Assets/Prefab/Character/AsyncAITest/MTAsyncObject.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 5f959e0b6f474904f8517bf703937a0c
+    m_Address: Assets/Prefab/JobAI/TypeC.prefab
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -47,6 +62,16 @@ MonoBehaviour:
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: a2a824d2ccb396141a21d737d80df822
     m_Address: Assets/Prefab/Character/InstanceIdTest/GameObject1.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: aa1170d7299fc4a4ea29066d218d1202
+    m_Address: Assets/Prefab/JobAI/TypeB.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: bc20042c046a22a4eb0982dff1568d78
+    m_Address: Assets/Scripts/AI/JobTest/Status/TypeBJobStatus.asset
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

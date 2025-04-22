@@ -12,8 +12,6 @@ using static AiFunctionLibrary;
 using Unity.Burst;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System;
-using Unity.VisualScripting.YamlDotNet.Core.Tokens;
-using Unity.Plastic.Newtonsoft.Json.Linq;
 
 /// <summary>
 /// AIが判断を行うJob
@@ -143,22 +141,22 @@ public struct AITestJob : IJobParallelFor
         // 初期値は最後の条件、つまり条件なしの補欠条件
         int selectMove = characterData[index].brainData[nowMode].actCondition.Length - 1;
 
-        // ヘイト条件確認用の一時バッファ
-        NativeArray<Vector2Int> hateIndex = new NativeArray<Vector2Int>(characterData[index].brainData[nowMode].hateCondition.Length, Allocator.Temp);
-        NativeArray<TargetJudgeData> hateCondition = characterData[index].brainData[nowMode].hateCondition;
+        //// ヘイト条件確認用の一時バッファ
+        //NativeArray<Vector2Int> hateIndex = new NativeArray<Vector2Int>(characterData[index].brainData[nowMode].hateCondition.Length, Allocator.Temp);
+        //NativeArray<TargetJudgeData> hateCondition = characterData[index].brainData[nowMode].hateCondition;
 
-        // ヘイト確認バッファの初期化
-        for ( int i = 0; i < hateIndex.Length; i++ )
-        {
-            if ( hateCondition[i].isInvert )
-            {
-                hateIndex[i].Set(int.MaxValue, -1);
-            }
-            else
-            {
-                hateIndex[i].Set(int.MinValue, -1);
-            }
-        }
+        //// ヘイト確認バッファの初期化
+        //for ( int i = 0; i < hateIndex.Length; i++ )
+        //{
+        //    if ( hateCondition[i].isInvert )
+        //    {
+        //        hateIndex[i].Set(int.MaxValue, -1);
+        //    }
+        //    else
+        //    {
+        //        hateIndex[i].Set(int.MinValue, -1);
+        //    }
+        //}
 
         // キャラデータを確認する。
         for ( int i = 0; i < characterData.Length; i++ )
@@ -169,18 +167,20 @@ public struct AITestJob : IJobParallelFor
                 continue;
             }
 
-            // まずヘイト判断。
-            // 各ヘイト条件について、条件更新を記録する。
-            for ( int j = 0; j < hateCondition.Length; j++ )
-            {
-                int value = hateIndex[j].x;
-                if ( targetFunctions[(int)hateCondition[j].judgeCondition].Invoke(hateCondition[j], characterData[i], ref value) )
-                {
-                    hateIndex[j].Set(value, i);
-                }
-            }
+            // 読み取り専用のNativeContainerへのアクセスを避けるためにヘイト系の処理は分離することに
 
-            // 次に行動判断。
+            //// まずヘイト判断。
+            //// 各ヘイト条件について、条件更新を記録する。
+            //for ( int j = 0; j < hateCondition.Length; j++ )
+            //{
+            //    int value = hateIndex[j].x;
+            //    if ( targetFunctions[(int)hateCondition[j].judgeCondition].Invoke(hateCondition[j], characterData[i], ref value) )
+            //    {
+            //        hateIndex[j].Set(value, i);
+            //    }
+            //}
+
+            // 行動判断。
             // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
             if ( enableCondition != 0 )
             {
@@ -202,8 +202,37 @@ public struct AITestJob : IJobParallelFor
                     }
                 }
             }
+            // 条件満たしたらループ終わり。
+            else
+            {
+                break;
+            }
 
         }
+
+        //// ヘイト値の反映
+        //for ( int i = 0; i < hateIndex.Length; i++ )
+        //{
+        //    int targetHate = 0;
+        //    int targetHash = characterData[hateIndex[i].y].hashCode;
+
+        //    if ( characterData[index].personalHate.ContainsKey(targetHash) )
+        //    {
+        //        targetHate += (int)characterData[index].personalHate[targetHash];
+        //    }
+
+        //    if ( teamHate[(int)characterData[index].liveData.belong].ContainsKey(targetHash) )
+        //    {
+        //        targetHate += teamHate[(int)characterData[index].liveData.belong][targetHash];
+        //    }
+
+        //    // 最低10は保証。
+        //    targetHate = Math.Min(10,targetHate);
+
+        //    int newHate = (int)(targetHate * hateCondition[i].useAttackOrHateNum);
+
+        //}
+
 
         // その後、二回目のループで条件に当てはまるキャラを探す。
         // 二回目で済むかな？　判断条件の数だけ探さないとダメじゃない？
