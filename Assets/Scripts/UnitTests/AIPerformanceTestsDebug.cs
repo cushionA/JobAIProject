@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -8,38 +7,36 @@ using Unity.PerformanceTesting;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
+using System;
 using static JTestAIBase;
 using static CombatManager;
 using static JobAITestStatus;
-using static AiFunctionLibrary;
 using Unity.Burst;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
-using Unity.Mathematics;
-using System.Text;
 using UnityEngine.ResourceManagement.ResourceLocations;
+using Unity.Mathematics;
 
 /// <summary>
 /// AITestJobのパフォーマンステスト
 /// </summary>
-public class AIPerformanceTests
+public class AIPerformanceTestsDebug
 {
     // テスト用のデータ
     private UnsafeList<CharacterData> _characterData;
     private UnsafeList<MovementInfo> _judgeResultJob;
     private UnsafeList<MovementInfo> _judgeResultNonJob;
-    private List<MovementInfo> _judgeResultStandard; // StandardAI用の結果リスト
     private NativeHashMap<int2, int> _teamHate;
     private NativeArray<int> _relationMap;
+    //private NativeArray<FunctionPointer<SkipJudgeDelegate>> _skipFunctions;
+    //private NativeArray<FunctionPointer<TargetJudgeDelegate>> _targetFunctions;
 
     // 初期化状態を追跡するフラグ
     private bool _dataInitialized = false;
     private bool _charactersInitialized = false;
     private bool _aiInstancesInitialized = false;
-
-    int jobBatchCount = 18;
 
     /// <summary>
     /// 
@@ -52,13 +49,12 @@ public class AIPerformanceTests
     private string[] types = new string[] { "Assets/Prefab/JobAI/TypeA.prefab", "Assets/Prefab/JobAI/TypeB.prefab", "Assets/Prefab/JobAI/TypeC.prefab" };
 
     // テスト用のパラメータ
-    private int _characterCount = 18;
-    private float _nowTime = 100.0f;
+    private int _characterCount = 1000;
+    private float _nowTime = 10.0f;
 
     // AIテスト用のインスタンス
     private AITestJob _aiTestJob;
     private NonJobAI _nonJobAI;
-    private StandardAI _standardAI; // 標準コレクションを使用するAI
 
     [UnitySetUp]
     public IEnumerator OneTimeSetUp()
@@ -136,13 +132,6 @@ public class AIPerformanceTests
 
             _judgeResultNonJob = new UnsafeList<MovementInfo>(_characterCount, Allocator.Persistent);
             _judgeResultNonJob.Resize(_characterCount, NativeArrayOptions.ClearMemory);
-
-            // StandardAI用の結果リストを初期化
-            _judgeResultStandard = new List<MovementInfo>(_characterCount);
-            for ( int i = 0; i < _characterCount; i++ )
-            {
-                _judgeResultStandard.Add(new MovementInfo());
-            }
 
             // チームごとのヘイトマップを初期化
             _teamHate = new NativeHashMap<int2, int>(3, Allocator.Persistent);
@@ -224,7 +213,7 @@ public class AIPerformanceTests
                 characterData = _characterData,
                 nowTime = _nowTime,
                 judgeResult = _judgeResultJob,
-                relationMap = _relationMap,
+                relationMap = _relationMap
             };
 
             // NonJobAIの初期化
@@ -236,10 +225,6 @@ public class AIPerformanceTests
                 judgeResult = _judgeResultNonJob,
                 relationMap = _relationMap
             };
-
-            // StandardAIの初期化（NativeContainerからデータをコピー）
-            _standardAI = new StandardAI(_teamHate, _characterData, _nowTime, _relationMap);
-            _standardAI.judgeResult = _judgeResultStandard;
 
             _aiInstancesInitialized = true;
         }
@@ -316,7 +301,7 @@ public class AIPerformanceTests
             }
         }
 
-        Debug.Log($"インスタンス化リクエスト完了: {tasks.Count}個 {_characterCount}");
+        Debug.Log($"インスタンス化リクエスト完了: {tasks.Count}個");
 
         // すべてのオブジェクトが生成されるのを待つ
         bool allTasksCompleted = true;
@@ -391,6 +376,7 @@ public class AIPerformanceTests
             // ヘイトマップも初期化
             int teamNum = (int)data.liveData.belong;
 
+
             if ( !_teamHate.IsCreated )
             {
                 Debug.LogError($"_teamHate[{teamNum}]が無効です");
@@ -460,195 +446,115 @@ public class AIPerformanceTests
         Debug.Log($"完了: InitializeCharacterData (成功={_charactersInitialized})");
     }
 
-    public static void DebugPrintCharacterData(CharacterData data)
-    {
-        StringBuilder sb = new StringBuilder();
-        sb.AppendLine("===== CharacterData詳細情報 =====");
-        sb.AppendLine($"ハッシュコード: {data.hashCode}");
-
-        // 基本情報
-        sb.AppendLine($"最終判断時間: {data.lastJudgeTime}");
-        sb.AppendLine($"最終移動判断時間: {data.lastMoveJudgeTime}");
-        sb.AppendLine($"移動判断間隔: {data.moveJudgeInterval}");
-        sb.AppendLine($"ターゲット数: {data.targetingCount}");
-
-        // ライブデータ
-        sb.AppendLine("【LiveData情報】");
-        sb.AppendLine($"  現在位置: {data.liveData.nowPosition}");
-        sb.AppendLine($"  現在HP: {data.liveData.currentHp}/{data.liveData.maxHp}");
-        sb.AppendLine($"  所属: {data.liveData.belong}");
-        sb.AppendLine($"  状態: {data.liveData.actState}");
-        // 他のliveDataフィールドも必要に応じて追加
-
-        // BrainData情報
-        sb.AppendLine("【BrainData情報】");
-        if ( data.brainData.IsCreated )
-        {
-            sb.AppendLine($"  登録数: {data.brainData.Count}");
-            var keys = data.brainData.GetKeyArray(Allocator.Temp);
-            try
-            {
-                foreach ( var key in keys )
-                {
-                    if ( data.brainData.TryGetValue(key, out var brainStatus) )
-                    {
-                        sb.AppendLine($"  モード[{key}]:");
-                        sb.AppendLine($"    判断間隔: {brainStatus.judgeInterval}");
-                        // 他のbrainStatusフィールドも必要に応じて追加
-                    }
-                }
-                keys.Dispose();
-            }
-            catch ( Exception ex )
-            {
-                sb.AppendLine($"  BrainDataアクセス中にエラー: {ex.Message}");
-                if ( keys.IsCreated )
-                    keys.Dispose();
-            }
-        }
-        else
-        {
-            sb.AppendLine("  BrainDataは作成されていません");
-        }
-
-        // 個人ヘイト情報
-        sb.AppendLine("【PersonalHate情報】");
-        if ( data.personalHate.IsCreated )
-        {
-            sb.AppendLine($"  登録数: {data.personalHate.Count}");
-            var hateKeys = data.personalHate.GetKeyArray(Allocator.Temp);
-            try
-            {
-                foreach ( var target in hateKeys )
-                {
-                    if ( data.personalHate.TryGetValue(target, out var hateValue) )
-                    {
-                        sb.AppendLine($"  対象[{target}]: ヘイト値={hateValue}");
-                    }
-                }
-                hateKeys.Dispose();
-            }
-            catch ( Exception ex )
-            {
-                sb.AppendLine($"  PersonalHateアクセス中にエラー: {ex.Message}");
-                if ( hateKeys.IsCreated )
-                    hateKeys.Dispose();
-            }
-        }
-        else
-        {
-            sb.AppendLine("  PersonalHateは作成されていません");
-        }
-
-        // 近距離キャラクター情報
-        sb.AppendLine("【ShortRangeCharacter情報】");
-        if ( data.shortRangeCharacter.IsCreated )
-        {
-            sb.AppendLine($"  登録数: {data.shortRangeCharacter.Length}");
-            try
-            {
-                for ( int i = 0; i < data.shortRangeCharacter.Length; i++ )
-                {
-                    sb.AppendLine($"  近距離キャラ[{i}]: Hash={data.shortRangeCharacter[i]}");
-                }
-            }
-            catch ( Exception ex )
-            {
-                sb.AppendLine($"  ShortRangeCharacterアクセス中にエラー: {ex.Message}");
-            }
-        }
-        else
-        {
-            sb.AppendLine("  ShortRangeCharacterは作成されていません");
-        }
-
-        sb.AppendLine("============================");
-
-        // 長いログを分割して出力（Unity consoleの文字数制限回避）
-        const int maxLogLength = 1000;
-        for ( int i = 0; i < sb.Length; i += maxLogLength )
-        {
-            int length = Math.Min(maxLogLength, sb.Length - i);
-            Debug.Log(sb.ToString(i, length));
-        }
-    }
-
     /// <summary>
     /// テストデータのメモリ解放
     /// </summary>
     private void DisposeTestData()
     {
-        // UnsafeListの解放
-        if ( _characterData.IsCreated )
+        Debug.Log("開始: DisposeTestData");
+        try
         {
-            // 各キャラクターデータ内のネイティブコンテナを解放
+            // UnsafeListの解放
+            if ( _characterData.IsCreated )
+            {
+                Debug.Log($"_characterDataの解放開始: Length={_characterData.Length}");
+                // 各キャラクターデータ内のネイティブコンテナを解放
+                for ( int i = 0; i < _characterData.Length; i++ )
+                {
+                    CharacterData data = _characterData[i];
+                    data.Dispose();
+                }
+
+                _characterData.Dispose();
+                Debug.Log("_characterDataの解放完了");
+            }
+
+            if ( _judgeResultJob.IsCreated )
+            {
+                _judgeResultJob.Dispose();
+                Debug.Log("_judgeResultJobの解放完了");
+            }
+
+            if ( _judgeResultNonJob.IsCreated )
+            {
+                _judgeResultNonJob.Dispose();
+                Debug.Log("_judgeResultNonJobの解放完了");
+            }
+
+            // チームヘイトマップの解放
+            if ( _teamHate.IsCreated )
+            {
+                Debug.Log($"_teamHateの解放開始: Length={_teamHate.Count}");
+
+                _teamHate.Dispose();
+                Debug.Log("_teamHateの解放完了");
+            }
+
+            // その他のNativeArrayの解放
+            if ( _relationMap.IsCreated )
+            {
+                _relationMap.Dispose();
+                Debug.Log("_relationMapの解放完了");
+            }
+
+            _dataInitialized = false;
+            _charactersInitialized = false;
+            _aiInstancesInitialized = false;
+        }
+        catch ( Exception ex )
+        {
+            Debug.LogError($"DisposeTestDataでのエラー: {ex.Message}\n{ex.StackTrace}");
+        }
+        Debug.Log("完了: DisposeTestData");
+    }
+
+    /// <summary>
+    /// 各テスト実行前のステータスランダム化
+    /// </summary>
+    [SetUp]
+    public void SetUp()
+    {
+        Debug.Log("開始: SetUp");
+
+        // 初期化チェック
+        if ( !_dataInitialized || !_charactersInitialized || !_aiInstancesInitialized )
+        {
+            Debug.LogError($"初期化が完了していません: Data={_dataInitialized}, Characters={_charactersInitialized}, AI={_aiInstancesInitialized}");
+        }
+
+        // _teamHateの状態確認
+        if ( _teamHate.IsCreated )
+        {
+            for ( int i = 0; i < _teamHate.Count; i++ )
+            {
+                Debug.Log($"SetUpでの_teamHate[{i}]: IsCreated={_teamHate.IsCreated}, Count={_teamHate.Count}");
+            }
+        }
+        else
+        {
+            Debug.LogError("SetUpで_teamHateが初期化されていません");
+        }
+
+        try
+        {
+            // キャラクターデータのステータスをランダム化
+            // 個々のCharacterDataを処理する形に変更
             for ( int i = 0; i < _characterData.Length; i++ )
             {
                 CharacterData data = _characterData[i];
-                data.Dispose();
+                CharacterDataRandomizer.RandomizeCharacterData(ref data, _characterData);
+                _characterData[i] = data;
             }
 
-            _characterData.Dispose();
+            // AIインスタンスの時間を更新
+            _aiTestJob.nowTime = _nowTime;
+            _nonJobAI.nowTime = _nowTime;
         }
-
-        if ( _judgeResultJob.IsCreated )
-            _judgeResultJob.Dispose();
-
-        if ( _judgeResultNonJob.IsCreated )
-            _judgeResultNonJob.Dispose();
-
-        // StandardAI用の結果リストは管理されたオブジェクトなのでGCが処理する
-        _judgeResultStandard = null;
-
-        // チームヘイトマップの解放
-        if ( _teamHate.IsCreated )
+        catch ( Exception ex )
         {
-            _teamHate.Dispose();
+            Debug.LogError($"SetUpでのエラー: {ex.Message}\n{ex.StackTrace}");
         }
-
-        // その他のNativeArrayの解放
-        if ( _relationMap.IsCreated )
-            _relationMap.Dispose();
-    }
-
-    /// <summary>
-    /// 非JobSystemのAI処理パフォーマンステスト
-    /// </summary>
-    [Test, Performance]
-    public void NonJobAI_Performance_Test()
-    {
-        Debug.Log($"テストデータの初期化完了: teamHate.IsCreated={_teamHate.IsCreated}, Length={_teamHate.Count}");
-
-        Measure.Method(() =>
-        {
-            // 非JobSystemのAI処理実行
-            _nonJobAI.ExecuteAIDecision();
-        })
-        .WarmupCount(3)       // ウォームアップ回数
-        .MeasurementCount(10) // 計測回数
-        .IterationsPerMeasurement(1) // 1回の計測あたりの実行回数
-        .GC()                 // GCの計測も行う
-        .Run();
-    }
-
-    /// <summary>
-    /// StandardAIのパフォーマンステスト
-    /// </summary>
-    [Test, Performance]
-    public void StandardAI_Performance_Test()
-    {
-        Debug.Log($"StandardAIテスト開始: characterData.Count={_standardAI.characterData.Count}");
-
-        Measure.Method(() =>
-        {
-            // StandardAIの処理実行
-            _standardAI.ExecuteAIDecision();
-        })
-        .WarmupCount(3)       // ウォームアップ回数
-        .MeasurementCount(10) // 計測回数
-        .IterationsPerMeasurement(1) // 1回の計測あたりの実行回数
-        .GC()                 // GCの計測も行う
-        .Run();
+        Debug.Log("完了: SetUp");
     }
 
     /// <summary>
@@ -657,241 +563,170 @@ public class AIPerformanceTests
     [Test, Performance]
     public void JobSystemAI_Performance_Test()
     {
-        Debug.Log($"テストデータの初期化完了: teamHate.IsCreated={_teamHate.IsCreated}, Length={_teamHate.Count}");
+        Debug.Log("開始: JobSystemAI_Performance_Test");
 
-        Measure.Method(() =>
+        // _teamHateの状態を詳細にログ
+        if ( _teamHate.IsCreated )
         {
-            // JobSystemのAI処理実行
-            JobHandle handle = _aiTestJob.Schedule(_characterCount, jobBatchCount);
-            handle.Complete();
-        })
-        .WarmupCount(3)       // ウォームアップ回数
-        .MeasurementCount(10) // 計測回数
-        .IterationsPerMeasurement(1) // 1回の計測あたりの実行回数
-        .GC()                 // GCの計測も行う
-        .Run();
+            Debug.Log($"テスト内_teamHate: Length={_teamHate.Count}, IsCreated={_teamHate.IsCreated}");
+            for ( int i = 0; i < _teamHate.Count; i++ )
+            {
+                Debug.Log($"テスト内_teamHate[{i}]: Count={_teamHate.Count}, IsCreated={_teamHate.IsCreated}");
+
+                // キーのサンプルをログ（最大5個）
+                var enumerator = _teamHate.GetEnumerator();
+                int count = 0;
+                while ( enumerator.MoveNext() && count < 5 )
+                {
+                    Debug.Log($"  サンプルキー: {enumerator.Current.Key}, 値: {enumerator.Current.Value}");
+                    count++;
+                }
+
+            }
+        }
+        else
+        {
+            Debug.LogError("テスト内で_teamHateが無効です");
+        }
+
+        // AITestJobを再初期化してみる
+        try
+        {
+            // AITestJobの初期化
+            _aiTestJob = new AITestJob
+            {
+                teamHate = _teamHate,
+                characterData = _characterData,
+                nowTime = _nowTime,
+                judgeResult = _judgeResultJob,
+                relationMap = _relationMap
+            };
+
+            Debug.Log("AITestJobを再初期化しました");
+
+            // ネイティブコンテナが有効か最終確認
+            Debug.Log($"実行前の最終チェック: teamHate.IsCreated={_teamHate.IsCreated}, チーム数={_teamHate.Count}");
+            if ( _teamHate.IsCreated )
+            {
+                for ( int i = 0; i < _teamHate.Count; i++ )
+                {
+                    Debug.Log($"_teamHate[{i}].IsCreated={_teamHate.IsCreated}, Count={_teamHate.Count}");
+                }
+            }
+
+            Measure.Method(() =>
+            {
+                // JobSystemのAI処理実行
+                JobHandle handle = _aiTestJob.Schedule(_characterCount, 64);
+                handle.Complete();
+            })
+            .WarmupCount(3)       // ウォームアップ回数
+            .MeasurementCount(10) // 計測回数
+            .IterationsPerMeasurement(1) // 1回の計測あたりの実行回数
+            .GC()                 // GCの計測も行う
+            .Run();
+        }
+        catch ( Exception ex )
+        {
+            Debug.LogError($"JobSystemAI_Performance_Testでのエラー: {ex.ToString()}");
+        }
+
+        Debug.Log("完了: JobSystemAI_Performance_Test");
     }
 
     /// <summary>
-    /// テストデータの再作成（キャラクター数変更時）
-    /// </summary>
-    private async UniTask RecreateTestData(int newCharacterCount)
-    {
-        // 現在のデータを解放
-        DisposeTestData();
-
-        // キャラクター数を更新
-        _characterCount = newCharacterCount;
-
-        // 新しいデータを初期化して完了を待機
-        InitializeTestData();
-
-        Debug.Log($"テストデータの初期化完了: teamHate.IsCreated={_teamHate.IsCreated}, Length={_teamHate.Count}");
-
-        // キャラクターデータの初期化
-        await InitializeCharacterData();
-
-        // AIインスタンスの初期化
-        InitializeAIInstances();
-    }
-
-    /// <summary>
-    /// 結果の検証テスト（全実装が同じ結果を出すか確認）
+    /// 結果の検証テスト（両実装が同じ結果を出すか確認）
     /// </summary>
     [Test]
     public void Verify_Results_Are_Same()
     {
-        // データをランダム化
-        for ( int i = 0; i < _characterData.Length; i++ )
+        Debug.Log("開始: Verify_Results_Are_Same");
+
+        // 初期化状態のチェック
+        if ( !_dataInitialized || !_charactersInitialized || !_aiInstancesInitialized )
         {
-            CharacterData data = _characterData[i];
-            CharacterDataRandomizer.RandomizeCharacterData(ref data, _characterData);
-            _characterData[i] = data;
+            Debug.LogError($"初期化が完了していません: Data={_dataInitialized}, Characters={_charactersInitialized}, AI={_aiInstancesInitialized}");
+            Assert.Fail("初期化が完了していないため、テストを実行できません");
+            return;
         }
 
-        // AIインスタンスの時間を更新
-        _aiTestJob.nowTime = _nowTime;
-        _nonJobAI.nowTime = _nowTime;
-        _standardAI.nowTime = _nowTime;
-
-        // 各AIの処理を実行
-        _nonJobAI.ExecuteAIDecision();
-        _standardAI.ExecuteAIDecision();
-
-        JobHandle handle = _aiTestJob.Schedule(_characterCount, jobBatchCount);
-        handle.Complete();
-
-        // 結果を比較（JobとNonJob）
-        bool jobNonJobMatch = true;
-        string jobNonJobMismatchInfo = "";
-
-        for ( int i = 0; i < _characterCount; i++ )
+        // _teamHateの状態確認
+        if ( _teamHate.IsCreated )
         {
-            MovementInfo nonJobResult = _judgeResultNonJob[i];
-            MovementInfo jobResult = _judgeResultJob[i];
-
-            // 結果が一致するか確認
-            if ( nonJobResult.result != jobResult.result ||
-                nonJobResult.actNum != jobResult.actNum ||
-                nonJobResult.targetHash != jobResult.targetHash )
+            for ( int i = 0; i < _teamHate.Count; i++ )
             {
-                jobNonJobMatch = false;
-                jobNonJobMismatchInfo = $"JobとNonJobの不一致(index={i}): NonJob({nonJobResult.result}, {nonJobResult.actNum}, {nonJobResult.targetHash}) " +
-                                      $"vs Job({jobResult.result}, {jobResult.actNum}, {jobResult.targetHash})";
-                break;
+                Debug.Log($"検証テスト内_teamHate[{i}]: IsCreated={_teamHate.IsCreated}, Count={_teamHate.Count}");
             }
         }
-
-        // 結果を比較（StandardとNonJob）
-        bool standardNonJobMatch = true;
-        string standardNonJobMismatchInfo = "";
-
-        for ( int i = 0; i < _characterCount; i++ )
+        else
         {
-            MovementInfo nonJobResult = _judgeResultNonJob[i];
-            MovementInfo standardResult = _judgeResultStandard[i];
+            Debug.LogError("検証テスト内で_teamHateが初期化されていません");
+            Assert.Fail("_teamHateが初期化されていないため、テストを実行できません");
+            return;
+        }
 
-            // 結果が一致するか確認
-            if ( nonJobResult.result != standardResult.result ||
-                nonJobResult.actNum != standardResult.actNum ||
-                nonJobResult.targetHash != standardResult.targetHash )
+        try
+        {
+            // AIJobの再初期化
+            _aiTestJob = new AITestJob
             {
-                standardNonJobMatch = false;
-                standardNonJobMismatchInfo = $"StandardとNonJobの不一致(index={i}): NonJob({nonJobResult.result}, {nonJobResult.actNum}, {nonJobResult.targetHash}) " +
-                                           $"vs Standard({standardResult.result}, {standardResult.actNum}, {standardResult.targetHash})";
-                break;
+                teamHate = _teamHate,
+                characterData = _characterData,
+                nowTime = _nowTime,
+                judgeResult = _judgeResultJob,
+                relationMap = _relationMap
+            };
+
+            // データをランダム化
+            for ( int i = 0; i < _characterData.Length; i++ )
+            {
+                CharacterData data = _characterData[i];
+                CharacterDataRandomizer.RandomizeCharacterData(ref data, _characterData);
+                _characterData[i] = data;
             }
-        }
 
-        // 検証
-        Assert.IsTrue(jobNonJobMatch, jobNonJobMismatchInfo);
-        Assert.IsTrue(standardNonJobMatch, standardNonJobMismatchInfo);
-    }
-
-    /// <summary>
-    /// 3種類のAI実装を比較検証するテスト
-    /// </summary>
-//    [Test, Performance]
-    public void Compare_Three_AI_Implementations()
-    {
-        // データをランダム化
-        for ( int i = 0; i < _characterData.Length; i++ )
-        {
-            CharacterData data = _characterData[i];
-            CharacterDataRandomizer.RandomizeCharacterData(ref data, _characterData);
-            _characterData[i] = data;
-        }
-
-        // 時間を更新（全AIに同じ時間を設定）
-        float testTime = 200.0f; // テスト用の時間
-        _aiTestJob.nowTime = testTime;
-        _nonJobAI.nowTime = testTime;
-        _standardAI.nowTime = testTime;
-
-        // 各AIの処理を実行し、パフォーマンスを測定
-        using ( Measure.Scope("JobSystemAI実行時間") )
-        {
-            JobHandle handle = _aiTestJob.Schedule(_characterCount, jobBatchCount);
-            handle.Complete();
-        }
-
-        using ( Measure.Scope("NonJobAI実行時間") )
-        {
+            // 両方のAI処理を実行
             _nonJobAI.ExecuteAIDecision();
-        }
+            Debug.Log("NonJobAI実行完了");
 
-        using ( Measure.Scope("StandardAI実行時間") )
-        {
-            _standardAI.ExecuteAIDecision();
-        }
+            // ジョブ実行前の最終チェック
 
-        // 結果検証用のログを出力
-        int matchCount = 0;
-        int mismatchCount = 0;
+            Debug.Log($"ジョブ実行前_teamHate: IsCreated={_teamHate.IsCreated}, Count={_teamHate.Count}");
 
-        for ( int i = 0; i < Math.Min(5, _characterCount); i++ )
-        {
-            // 各AIの結果を取得
-            MovementInfo jobResult = _judgeResultJob[i];
-            MovementInfo nonJobResult = _judgeResultNonJob[i];
-            MovementInfo standardResult = _judgeResultStandard[i];
 
-            // 結果が一致するか確認
-            bool allMatch = jobResult.result == nonJobResult.result &&
-                           jobResult.result == standardResult.result &&
-                           jobResult.actNum == nonJobResult.actNum &&
-                           jobResult.actNum == standardResult.actNum &&
-                           jobResult.targetHash == nonJobResult.targetHash &&
-                           jobResult.targetHash == standardResult.targetHash;
+            JobHandle handle = _aiTestJob.Schedule(_characterCount, 64);
+            handle.Complete();
+            Debug.Log("JobSystemAI実行完了");
 
-            if ( allMatch )
+            // 結果を比較
+            bool resultsMatch = true;
+            string mismatchInfo = "";
+
+            for ( int i = 0; i < _characterCount; i++ )
             {
-                matchCount++;
-            }
-            else
-            {
-                mismatchCount++;
-                Debug.LogWarning($"結果不一致(index={i}):\n" +
-                                $"Job: {jobResult.result}, {jobResult.actNum}, {jobResult.targetHash}\n" +
-                                $"NonJob: {nonJobResult.result}, {nonJobResult.actNum}, {nonJobResult.targetHash}\n" +
-                                $"Standard: {standardResult.result}, {standardResult.actNum}, {standardResult.targetHash}");
-            }
-        }
+                MovementInfo nonJobResult = _judgeResultNonJob[i];
+                MovementInfo jobResult = _judgeResultJob[i];
 
-        Debug.Log($"サンプル結果比較: 一致={matchCount}, 不一致={mismatchCount}");
-
-        // 検証（すべての実装で結果が一致することを確認）
-        Assert.AreEqual(0, mismatchCount, "異なる実装間で結果が一致しません");
-    }
-
-    /// <summary>
-    /// 異なるキャラクター数でのパフォーマンス比較テスト
-    /// </summary>
-    //[UnityTest, Performance]
-    public IEnumerator Compare_Different_Character_Counts()
-    {
-        // テスト用のキャラクター数の配列
-        int[] characterCounts = { 10, 50, 100 };
-
-        foreach ( int count in characterCounts )
-        {
-            // テストケース名を設定
-            using ( Measure.Scope($"Character Count: {count}") )
-            {
-                // キャラクター数の更新と再初期化
-                UniTask recreateTask = RecreateTestData(count);
-
-                // UniTaskの完了を待機
-                while ( !recreateTask.Status.IsCompleted() )
+                // 結果が一致するか確認
+                if ( nonJobResult.result != jobResult.result ||
+                    nonJobResult.actNum != jobResult.actNum ||
+                    nonJobResult.targetHash != jobResult.targetHash )
                 {
-                    yield return null;
-                }
-
-                // 非JobSystemテスト
-                using ( Measure.Scope("NonJobAI") )
-                {
-                    _nonJobAI.ExecuteAIDecision();
-                }
-
-                // StandardAIテスト
-                using ( Measure.Scope("StandardAI") )
-                {
-                    _standardAI.ExecuteAIDecision();
-                }
-
-                // フレームスキップ
-                yield return null;
-
-                // JobSystemテスト
-                using ( Measure.Scope("JobSystemAI") )
-                {
-                    JobHandle handle = _aiTestJob.Schedule(count, 64);
-                    handle.Complete();
+                    resultsMatch = false;
+                    mismatchInfo = $"Mismatch at index {i}: NonJob({nonJobResult.result}, {nonJobResult.actNum}, {nonJobResult.targetHash}) " +
+                                   $"vs Job({jobResult.result}, {jobResult.actNum}, {jobResult.targetHash})";
+                    break;
                 }
             }
 
-            // 次のテストの前にフレームをスキップ
-            yield return null;
+            // 検証
+            Assert.IsTrue(resultsMatch, mismatchInfo);
         }
+        catch ( Exception ex )
+        {
+            Debug.LogError($"検証テスト実行中のエラー: {ex.ToString()}");
+            Assert.Fail($"テスト実行中にエラーが発生: {ex.Message}");
+        }
+        Debug.Log("完了: Verify_Results_Are_Same");
     }
 }

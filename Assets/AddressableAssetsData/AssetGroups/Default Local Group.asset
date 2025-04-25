@@ -40,6 +40,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 5d6e8e43582d2cc4c86c8747787c1d5e
+    m_Address: Assets/Scripts/AI/JobTest/Status/TypeCJobStatus.asset
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 5f959e0b6f474904f8517bf703937a0c
     m_Address: Assets/Prefab/JobAI/TypeC.prefab
     m_ReadOnly: 0

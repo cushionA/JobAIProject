@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEngine;
 using static JobAITestStatus;
 using static JTestAIBase;
@@ -117,7 +118,7 @@ public class CombatManager : MonoBehaviour, IDisposable
     /// いやたぶんジョブシステムじゃなくてハッシュで個別に対象オブジェクトにヘイト設定した方が速い
     /// イベントの数だけハッシュマップをループして、
     /// </summary>
-    public NativeArray<NativeHashMap<int, int>> teamHate = new NativeArray<NativeHashMap<int, int>>(3, Allocator.Persistent);
+    public NativeHashMap<int2, int> teamHate = new NativeHashMap<int2, int>(7, Allocator.Persistent);
 
     /// <summary>
     /// AIのイベントを受け付ける入れ物。
@@ -158,11 +159,7 @@ public class CombatManager : MonoBehaviour, IDisposable
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        // HashMapの初期化
-        for ( int i = 0; i < teamHate.Length; i++ )
-        {
-            teamHate[i] = new NativeHashMap<int, int>(7, Allocator.Persistent);
-        }
+
     }
 
     /// <summary>
@@ -189,7 +186,7 @@ public class CombatManager : MonoBehaviour, IDisposable
         // キャラデータを追加し、敵対する陣営のヘイトリストにも入れる。
         charaDataDictionary.AddByHash(hashCode, new CharacterData(status, addObject));
 
-        for ( int i = 0; i < teamHate.Length; i++ )
+        for ( int i = 0; i < (int)CharacterSide.指定なし; i++ )
         {
             if ( teamNum == i )
             {
@@ -200,7 +197,7 @@ public class CombatManager : MonoBehaviour, IDisposable
             if ( CheckTeamHostility(i, teamNum) )
             {
                 // ひとまずヘイトの初期値は10とする。
-                teamHate[i].Add(hashCode, 10);
+                teamHate.Add(new int2(i, hashCode), 10);
             }
         }
     }
@@ -221,12 +218,14 @@ public class CombatManager : MonoBehaviour, IDisposable
         // キャラデータを削除し、敵対する陣営のヘイトリストからも消す。
         charaDataDictionary.RemoveByHash(hashCode);
 
-        for ( int i = 0; i < teamHate.Length; i++ )
+        for ( int i = 0; i < (int)CharacterSide.指定なし; i++ )
         {
+            int2 checkTeam = new int2(i, hashCode);
+
             // 含むかをチェック
-            if ( teamHate[i].ContainsKey(hashCode) )
+            if ( teamHate.ContainsKey(checkTeam) )
             {
-                teamHate[i].Remove(hashCode);
+                teamHate.Remove(checkTeam);
             }
         }
 
@@ -262,8 +261,7 @@ public class CombatManager : MonoBehaviour, IDisposable
         for ( int i = 0; i < 3; i++ )
         {
             charaDataDictionary[i].Dispose();
-            teamHate[i].Dispose();
-
+            teamHate.Dispose();
         }
         eventContainer.Dispose();
         teamHate.Dispose();
@@ -287,8 +285,6 @@ public class CombatManager : MonoBehaviour, IDisposable
             relationMap = relationMap,
             characterData = this.charaDataDictionary.GetInternalList1ForJob(),
             teamHate = this.teamHate,
-            targetFunctions = AiFunctionLibrary.targetFunctions,
-            skipFunctions = AiFunctionLibrary.skipFunctions,
             nowTime = GameManager.instance.NowTime,
             judgeResult = this.judgeResult
         };

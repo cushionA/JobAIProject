@@ -10,7 +10,8 @@
         "Unity.Collections",
         "MyCode",
         "Unity.ResourceManager",
-        "UniTask"
+        "UniTask",
+        "Unity.Mathematics"
     ],
     "includePlatforms": [],
     "excludePlatforms": [

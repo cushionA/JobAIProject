@@ -221,6 +221,15 @@ public class JobAITestStatus : SerializedScriptableObject
         なし = 0,
     }
 
+    /// <summary>
+    /// bitableな真偽値
+    /// </summary>
+    public enum BitableBool
+    {
+        FALSE = 0,
+        TRUE = 1
+    }
+
     #endregion Enum定義
 
     #region 構造体定義
@@ -481,8 +490,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// 以上は以内になるなど
         /// </summary>
         [Header("基準反転フラグ")]
-        [MarshalAs(UnmanagedType.U1)]
-        public bool isInvert;
+        public BitableBool isInvert;
 
     }
 
@@ -511,8 +519,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// 以上は以内になるなど
         /// </summary>
         [Header("基準反転フラグ")]
-        [MarshalAs(UnmanagedType.U1)]
-        public bool isInvert;
+        public BitableBool isInvert;
 
         /// <summary>
         /// これが指定なし、以外だとステート変更を行う。
@@ -548,8 +555,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// 以上は以内になるなど
         /// </summary>
         [Header("基準反転フラグ")]
-        [MarshalAs(UnmanagedType.U1)]
-        public bool isInvert;
+        public BitableBool isInvert;
 
         /// <summary>
         /// 対象の陣営区分
@@ -598,8 +604,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("特徴の判断方法")]
         [SerializeField]
-        [MarshalAs(UnmanagedType.U1)]
-        bool isAndFeatureCheck;
+        BitableBool isAndFeatureCheck;
 
         /// <summary>
         /// 対象の状態（バフ、デバフ）
@@ -614,8 +619,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("特殊効果の判断方法")]
         [SerializeField]
-        [MarshalAs(UnmanagedType.U1)]
-        bool isAndEffectCheck;
+        BitableBool isAndEffectCheck;
 
         /// <summary>
         /// 対象の状態（逃走、攻撃など）
@@ -638,8 +642,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("イベントの判断方法")]
         [SerializeField]
-        [MarshalAs(UnmanagedType.U1)]
-        bool isAndEventCheck;
+        BitableBool isAndEventCheck;
 
         /// <summary>
         /// 対象の弱点属性でフィルタリング
@@ -664,35 +667,40 @@ public class JobAITestStatus : SerializedScriptableObject
         /// <param name="feature"></param>
         /// <returns></returns>
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-        public bool IsPassFilter(in CharacterData charaData)
+        public byte IsPassFilter(in CharacterData charaData)
         {
             // andかorで特徴条件判定
             // 当てはまらないなら帰る。
-            if ( (isAndFeatureCheck ? ((targetFeature == 0) || (targetFeature & charaData.solidData.feature) == targetFeature) :
-                                                  ((targetFeature == 0) || (targetFeature & charaData.solidData.feature) > 0)) == false )
+            if ( (isAndFeatureCheck == BitableBool.TRUE ? ((targetFeature != 0) && (targetFeature & charaData.solidData.feature) != targetFeature) :
+                                                  ((targetFeature != 0) && (targetFeature & charaData.solidData.feature) == 0)) )
             {
-                return false;
+                return 0;
             }
 
             // 特殊効果判断
             // 当てはまらないなら帰る。
-            if ( (isAndEffectCheck ? ((targetEffect == 0) || (targetEffect & charaData.liveData.nowEffect) == targetEffect) :
-                                      ((targetEffect == 0) || (targetEffect & charaData.liveData.nowEffect) > 0)) == false )
+            if ( (isAndEffectCheck == BitableBool.TRUE ? ((targetEffect != 0) && (targetEffect & charaData.liveData.nowEffect) != targetEffect) :
+                                      ((targetEffect != 0) && (targetEffect & charaData.liveData.nowEffect) == 0)) )
             {
-                return false;
+                return 0;
             }
 
             // イベント判断
             // 当てはまらないなら帰る。
-            if ( (isAndEventCheck ? ((targetEvent == 0) || (targetEvent & charaData.liveData.brainEvent) == targetEvent) :
-                                      ((targetEvent == 0) || (targetEvent & charaData.liveData.brainEvent) > 0)) == false )
+            if ( (isAndEventCheck == BitableBool.TRUE ? ((targetEvent != 0) && (targetEvent & charaData.liveData.brainEvent) != targetEvent) :
+                                      ((targetEvent != 0) && (targetEvent & charaData.liveData.brainEvent) == 0)) )
             {
-                return false;
+                return 0;
             }
 
             // 残りの条件も判定。
-            return ((targetType == 0 || ((targetType & charaData.liveData.belong) > 0)) && (targetState == 0 || ((targetState & charaData.liveData.actState) > 0))
-                && (targetWeakPoint == 0 || ((targetWeakPoint & charaData.solidData.weakPoint) > 0)) && (targetUseElement == 0 || ((targetUseElement & charaData.solidData.attackElement) > 0)));
+            if ( (targetType == 0 || ((targetType & charaData.liveData.belong) > 0)) && (targetState == 0 || ((targetState & charaData.liveData.actState) > 0))
+                && (targetWeakPoint == 0 || ((targetWeakPoint & charaData.solidData.weakPoint) > 0)) && (targetUseElement == 0 || ((targetUseElement & charaData.solidData.attackElement) > 0)) )
+            {
+                return 1;
+            }
+
+            return 0;
         }
 
     }

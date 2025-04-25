@@ -75,7 +75,7 @@ public static class CharacterDataRandomizer
         data.targetingCount = UnityEngine.Random.Range(0, 5);
 
         // s“®ó‘Ô‚ğƒ‰ƒ“ƒ_ƒ€‰»
-        data.liveData.actState = (ActState)UnityEngine.Random.Range(0, 5); // ActState‚Ì”‚É‡‚í‚¹‚Ä’²®
+        //  data.liveData.actState = (ActState)UnityEngine.Random.Range(0, 5); // ActState‚Ì”‚É‡‚í‚¹‚Ä’²®
 
         // ÅŒã‚Ì”»’fŠÔ‚ğƒ‰ƒ“ƒ_ƒ€‰»
         data.lastJudgeTime = UnityEngine.Random.Range(0f, 10f);

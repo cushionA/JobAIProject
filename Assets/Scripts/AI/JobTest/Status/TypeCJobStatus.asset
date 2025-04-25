@@ -41,7 +41,7 @@ MonoBehaviour:
       light: 500
       dark: 10
     initialMove: 4
-    initialBelong: 3
+    initialBelong: 0
   solidData:
     displayAtk: 0
     displayDef: 0
