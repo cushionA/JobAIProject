@@ -39,7 +39,7 @@ public class AIPerformanceTests
     private bool _charactersInitialized = false;
     private bool _aiInstancesInitialized = false;
 
-    int jobBatchCount = 18;
+    int jobBatchCount = 50;
 
     /// <summary>
     /// 

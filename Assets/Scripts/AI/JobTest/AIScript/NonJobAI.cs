@@ -79,7 +79,7 @@ public struct NonJobAI
                 // スキップ条件を解釈して判断
                 if ( skipData.skipCondition == SkipJudgeCondition.条件なし || JudgeSkipByCondition(skipData, characterData[index]) == 1 )
                 {
-                    enableCondition &= 1 << i;
+                    enableCondition |= 1 << i;
                 }
             }
 
