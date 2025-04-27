@@ -57,6 +57,7 @@ public struct AITestJob : IJobParallelFor
     /// characterDataとjudgeResultのインデックスをベースに処理する。
     /// </summary>
     /// <param name="index"></param>
+    [BurstCompile]
     public void Execute(int index)
     {
         // 結果の構造体を作成。
@@ -83,6 +84,8 @@ public struct AITestJob : IJobParallelFor
 
             return;
         }
+
+        CharacterData myData = characterData[index];
 
         // characterData[index].brainData[nowMode].judgeInterval みたいな値は何回も使うなら一時変数に保存していい。
 
@@ -111,13 +114,13 @@ public struct AITestJob : IJobParallelFor
 
         // 前提となる自分についてのスキップ条件を確認。
         // 最後の条件は補欠条件なので無視
-        for ( int i = 0; i < characterData[index].brainData[nowMode].actCondition.Length - 1; i++ )
+        for ( int i = 0; i < myData.brainData[nowMode].actCondition.Length - 1; i++ )
         {
 
-            SkipJudgeData skipData = characterData[index].brainData[nowMode].actCondition[i].skipData;
+            SkipJudgeData skipData = myData.brainData[nowMode].actCondition[i].skipData;
 
             // スキップ条件を解釈して判断
-            if ( skipData.skipCondition == SkipJudgeCondition.条件なし || JudgeSkipByCondition(skipData, characterData[index]) == 1 )
+            if ( skipData.skipCondition == SkipJudgeCondition.条件なし || JudgeSkipByCondition(skipData, myData) == 1 )
             {
                 enableCondition |= 1 << i;
             }
@@ -126,11 +129,11 @@ public struct AITestJob : IJobParallelFor
 
         // 条件を満たした行動の中で最も優先的なもの。
         // 初期値は最後の条件、つまり条件なしの補欠条件
-        int selectMove = characterData[index].brainData[nowMode].actCondition.Length - 1;
+        int selectMove = myData.brainData[nowMode].actCondition.Length - 1;
 
         //// ヘイト条件確認用の一時バッファ
-        //NativeArray<Vector2Int> hateIndex = new NativeArray<Vector2Int>(characterData[index].brainData[nowMode].hateCondition.Length, Allocator.Temp);
-        //NativeArray<TargetJudgeData> hateCondition = characterData[index].brainData[nowMode].hateCondition;
+        //NativeArray<Vector2Int> hateIndex = new NativeArray<Vector2Int>(myData.brainData[nowMode].hateCondition.Length, Allocator.Temp);
+        //NativeArray<TargetJudgeData> hateCondition = myData.brainData[nowMode].hateCondition;
 
         //// ヘイト確認バッファの初期化
         //for ( int i = 0; i < hateIndex.Length; i++ )
@@ -171,17 +174,17 @@ public struct AITestJob : IJobParallelFor
             // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
             if ( enableCondition != 0 )
             {
-                for ( int j = 0; j < characterData[index].brainData[nowMode].actCondition.Length - 1; j++ )
+                for ( int j = 0; j < myData.brainData[nowMode].actCondition.Length - 1; j++ )
                 {
                     // ある条件満たしたらbreakして、以降はそれ以下の条件もう見ない。
-                    if ( CheckActCondition(characterData[index].brainData[nowMode].actCondition[j], characterData[index], characterData[i], teamHate) )
+                    if ( CheckActCondition(myData.brainData[nowMode].actCondition[j], myData, characterData[i], teamHate) )
                     {
-                        selectMove = i;
+                        selectMove = j;
 
                         // enableConditionのbitも消す。
                         // i桁目までのビットをすべて1にするマスクを作成
                         // (1 << (i + 1)) - 1 は 0から i-1桁目までのビットがすべて1
-                        int mask = (1 << i) - 1;
+                        int mask = (1 << j) - 1;
 
                         // マスクと元の値の論理積を取ることで上位ビットをクリア
                         enableCondition = enableCondition & mask;
@@ -203,14 +206,14 @@ public struct AITestJob : IJobParallelFor
         //    int targetHate = 0;
         //    int targetHash = characterData[hateIndex[i].y].hashCode;
 
-        //    if ( characterData[index].personalHate.ContainsKey(targetHash) )
+        //    if ( myData.personalHate.ContainsKey(targetHash) )
         //    {
-        //        targetHate += (int)characterData[index].personalHate[targetHash];
+        //        targetHate += (int)myData.personalHate[targetHash];
         //    }
 
-        //    if ( teamHate[(int)characterData[index].liveData.belong].ContainsKey(targetHash) )
+        //    if ( teamHate[(int)myData.liveData.belong].ContainsKey(targetHash) )
         //    {
-        //        targetHate += teamHate[(int)characterData[index].liveData.belong][targetHash];
+        //        targetHate += teamHate[(int)myData.liveData.belong][targetHash];
         //    }
 
         //    // 最低10は保証。
@@ -238,7 +241,7 @@ public struct AITestJob : IJobParallelFor
 
         // 最も条件に近いターゲットを確認する。
         // 比較用初期値はInvertによって変動。
-        TargetJudgeData targetJudgeData = characterData[index].brainData[nowMode].actCondition[selectMove].targetCondition;
+        TargetJudgeData targetJudgeData = myData.brainData[nowMode].actCondition[selectMove].targetCondition;
         int nowValue = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
         int newTargetHash = 0;
 
@@ -253,128 +256,29 @@ public struct AITestJob : IJobParallelFor
             judgeResult[index] = resultData;
             return;
         }
-
         // それ以外であればターゲットを判断
-        if ( targetJudgeData.judgeCondition == TargetSelectCondition.距離 )
-        {
-            // 自分の位置をキャッシュ
-            float myPositionX = characterData[index].liveData.nowPosition.x;
-            float myPositionY = characterData[index].liveData.nowPosition.y;
-
-            // ターゲット選定ループ
-            for ( int i = 0; i < characterData.Length; i++ )
-            {
-                // 自分自身か、フィルターをパスできなければ戻る。
-                if ( i == index || targetJudgeData.filter.IsPassFilter(characterData[i]) == 0 )
-                {
-                    continue;
-                }
-
-                // マンハッタン距離で遠近判断
-                float distance = Math.Abs(myPositionX - characterData[i].liveData.nowPosition.x) + Math.Abs(myPositionY - characterData[i].liveData.nowPosition.y);
-
-                // 一番高いやつを求める。
-                if ( targetJudgeData.isInvert == BitableBool.FALSE )
-                {
-                    if ( distance > nowValue )
-                    {
-                        nowValue = (int)distance;
-                        newTargetHash = characterData[i].hashCode;
-                    }
-                }
-                // 一番低いやつを求める。
-                else
-                {
-                    if ( distance < nowValue )
-                    {
-                        nowValue = (int)distance;
-                        newTargetHash = characterData[i].hashCode;
-                    }
-                }
-
-            }
-        }
-        else if ( targetJudgeData.judgeCondition == TargetSelectCondition.自分 )
-        {
-            newTargetHash = characterData[index].hashCode;
-        }
-        // 何かしらのシングルトンにプレイヤーのHashは持たせとこ
-        else if ( targetJudgeData.judgeCondition == TargetSelectCondition.プレイヤー )
-        {
-            // newTargetHash = characterData[i].hashCode;
-        }
-        else if ( targetJudgeData.judgeCondition == TargetSelectCondition.指定なし_ヘイト値 )
-        {
-            // ターゲット選定ループ
-            for ( int i = 0; i < characterData.Length; i++ )
-            {
-                // 自分自身か、フィルターをパスできなければ戻る。
-                if ( i == index || targetJudgeData.filter.IsPassFilter(characterData[i]) == 0 )
-                {
-                    continue;
-                }
-
-                // ヘイト値を確認
-                int targetHash = characterData[i].hashCode;
-                int targetHate = 0;
-
-                if ( characterData[index].personalHate.ContainsKey(targetHash) )
-                {
-                    targetHate += (int)characterData[index].personalHate[targetHash];
-                }
-
-                // チームのヘイトはint2で確認する。
-                int2 hateKey = new int2((int)characterData[index].liveData.belong, targetHash);
-
-                if ( teamHate.ContainsKey(hateKey) )
-                {
-                    targetHate += teamHate[hateKey];
-                }
-
-                // 一番高いやつを求める。
-                if ( targetJudgeData.isInvert == BitableBool.FALSE )
-                {
-                    if ( targetHate > nowValue )
-                    {
-                        nowValue = targetHate;
-                        newTargetHash = characterData[i].hashCode;
-                    }
-                }
-                // 一番低いやつを求める。
-                else
-                {
-                    if ( targetHate < nowValue )
-                    {
-                        nowValue = targetHate;
-                        newTargetHash = characterData[i].hashCode;
-                    }
-                }
-
-            }
-        }
-        // 通常のターゲット選定
         else
         {
-
-            // ターゲット選定ループ
-            for ( int i = 0; i < characterData.Length; i++ )
+            int tIndex = JudgeTargetByCondition(targetJudgeData, characterData, myData, teamHate);
+            if ( tIndex >= 0 )
             {
-                // ハッシュを取得
-                // ほんとはここでターゲットカウントで狙われ過ぎのやつ弾いた方がいい
-                if ( JudgeTargetByCondition(targetJudgeData, characterData[i], ref nowValue) == 1 )
-                {
-                    newTargetHash = characterData[i].hashCode;
-                }
+                newTargetHash = characterData[tIndex].hashCode;
+
+                //   Debug.Log($"ターゲット判断成功:{tIndex}のやつ。  Hash：{newTargetHash}");
+            }
+            // ここでターゲット見つかってなければ待機に移行。
+            else
+            {
+                // 待機に移行
+                resultData.result = JudgeResult.新しく判断をした;
+                resultData.actNum = (int)ActState.待機;
+                //  Debug.Log($"ターゲット判断失敗　行動番号{selectMove}");
             }
         }
 
-        // ここでターゲット見つかってなければ待機に移行。
-        if ( newTargetHash == 0 )
-        {
-            // 待機に移行
-            resultData.result = JudgeResult.新しく判断をした;
-            resultData.actNum = (int)ActState.待機;
-        }
+        resultData.result = JudgeResult.新しく判断をした;
+        resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
+        resultData.targetHash = newTargetHash;
 
         // 判断結果を設定。
         judgeResult[index] = resultData;
@@ -584,637 +488,779 @@ public struct AITestJob : IJobParallelFor
     // TargetConditionに基づいて判定を行うメソッド
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int JudgeTargetByCondition(in TargetJudgeData judgeData, in CharacterData targetData, ref int score)
+    public static int JudgeTargetByCondition(in TargetJudgeData judgeData, in UnsafeList<CharacterData> cData, in CharacterData myData, in NativeHashMap<int2, int> tHate)
     {
+
+        int index = -1;
+
         TargetSelectCondition condition = judgeData.judgeCondition;
+
+        int isInvert;
+        int score;
+
+        // 逆だから小さいのを探すので最大値入れる
+        if ( judgeData.isInvert == BitableBool.TRUE )
+        {
+            isInvert = 1;
+            score = int.MaxValue;
+        }
+        // 大きいのを探すので最小値スタート
+        else
+        {
+            isInvert = 0;
+            score = int.MinValue;
+        }
+
+        //if ( judgeData.judgeCondition == TargetSelectCondition.高度 && isInvert == 1 )
+        //{
+        //    Debug.Log($" 逆{judgeData.isInvert == BitableBool.TRUE} スコア初期{score}");
+        //}
+
+
         switch ( condition )
         {
             case TargetSelectCondition.高度:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                int height = (int)targetData.liveData.nowPosition.y;
-                int isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める (isInvert == 1)
-                if ( isInvert != 0 )
-                {
-                    int isGreater = height > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = height;
-                        return 1;
+                        continue;
+                    }
+
+                    int height = (int)cData[i].liveData.nowPosition.y;
+
+
+                    // 一番高いやつを求める (isInvert == 1)
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = height > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = height;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める (isInvert == 0)
+                    else
+                    {
+                        //   Debug.Log($" 番号{index} 高さ{score} 現在の高さ{height}　条件{height < score}");
+                        int isLess = height < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = height;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める (isInvert == 0)
-                else
-                {
-                    int isLess = height < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = height;
-                        return 1;
-                    }
-                }
-                return 0;
+
+
+
+                return index;
 
             case TargetSelectCondition.HP割合:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.hpRatio > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.hpRatio;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.hpRatio > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.hpRatio;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.hpRatio < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.hpRatio;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.hpRatio < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.hpRatio;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.HP:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.currentHp > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.currentHp;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.currentHp > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.currentHp;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.currentHp < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.currentHp;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.currentHp < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.currentHp;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.敵に狙われてる数:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.targetingCount > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.targetingCount;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].targetingCount > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].targetingCount;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].targetingCount < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].targetingCount;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.targetingCount < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.targetingCount;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.合計攻撃力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.dispAtk > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.dispAtk;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.dispAtk > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.dispAtk;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.dispAtk < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.dispAtk;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.dispAtk < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.dispAtk;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.合計防御力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.dispDef > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.dispDef;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.dispDef > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.dispDef;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.dispDef < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.dispDef;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.dispDef < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.dispDef;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.斬撃攻撃力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.atk.slash > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.atk.slash;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.atk.slash > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.atk.slash;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.atk.slash < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.atk.slash;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.atk.slash < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.atk.slash;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.刺突攻撃力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.atk.pierce > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.atk.pierce;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.atk.pierce > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.atk.pierce;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.atk.pierce < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.atk.pierce;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.atk.pierce < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.atk.pierce;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.打撃攻撃力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.atk.strike > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.atk.strike;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.atk.strike > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.atk.strike;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.atk.strike < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.atk.strike;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.atk.strike < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.atk.strike;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.炎攻撃力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.atk.fire > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.atk.fire;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.atk.fire > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.atk.fire;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.atk.fire < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.atk.fire;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.atk.fire < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.atk.fire;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.雷攻撃力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.atk.lightning > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.atk.lightning;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.atk.lightning > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.atk.lightning;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.atk.lightning < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.atk.lightning;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.atk.lightning < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.atk.lightning;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.光攻撃力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.atk.light > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.atk.light;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.atk.light > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.atk.light;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.atk.light < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.atk.light;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.atk.light < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.atk.light;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.闇攻撃力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.atk.dark > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.atk.dark;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.atk.dark > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.atk.dark;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.atk.dark < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.atk.dark;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.atk.dark < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.atk.dark;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.斬撃防御力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.def.slash > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.def.slash;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.def.slash > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.def.slash;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.def.slash < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.def.slash;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.def.slash < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.def.slash;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.刺突防御力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.def.pierce > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.def.pierce;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.def.pierce > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.def.pierce;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.def.pierce < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.def.pierce;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.def.pierce < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.def.pierce;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.打撃防御力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.def.strike > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.def.strike;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.def.strike > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.def.strike;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.def.strike < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.def.strike;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.def.strike < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.def.strike;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.炎防御力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.def.fire > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.def.fire;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.def.fire > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.def.fire;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.def.fire < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.def.fire;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.def.fire < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.def.fire;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.雷防御力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.def.lightning > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.def.lightning;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.def.lightning > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.def.lightning;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.def.lightning < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.def.lightning;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.def.lightning < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.def.lightning;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.光防御力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.def.light > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.def.light;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.def.light > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.def.light;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.def.light < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.def.light;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
-                {
-                    int isLess = targetData.liveData.def.light < score ? 1 : 0;
-                    if ( isLess != 0 )
-                    {
-                        score = targetData.liveData.def.light;
-                        return 1;
-                    }
-                }
-                return 0;
+                return index;
 
             case TargetSelectCondition.闇防御力:
-                // フィルターをパスできなければ戻る。
-                if ( judgeData.filter.IsPassFilter(targetData) == 0 )
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    return 0;
-                }
-
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
-
-                // 一番高いやつを求める
-                if ( isInvert != 0 )
-                {
-                    int isGreater = targetData.liveData.def.dark > score ? 1 : 0;
-                    if ( isGreater != 0 )
+                    // フィルターをパスできなければ戻る。
+                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.def.dark;
-                        return 1;
+                        continue;
+                    }
+
+                    // 一番高いやつを求める
+                    if ( isInvert == 0 )
+                    {
+                        int isGreater = cData[i].liveData.def.dark > score ? 1 : 0;
+                        if ( isGreater != 0 )
+                        {
+                            score = cData[i].liveData.def.dark;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める
+                    else
+                    {
+                        int isLess = cData[i].liveData.def.dark < score ? 1 : 0;
+                        if ( isLess != 0 )
+                        {
+                            score = cData[i].liveData.def.dark;
+                            index = i;
+                        }
                     }
                 }
-                // 一番低いやつを求める
-                else
+                return index;
+
+            case TargetSelectCondition.距離:
+                // 自分の位置をキャッシュ
+                float myPositionX = myData.liveData.nowPosition.x;
+                float myPositionY = myData.liveData.nowPosition.y;
+                for ( int i = 0; i < cData.Length; i++ )
                 {
-                    int isLess = targetData.liveData.def.dark < score ? 1 : 0;
-                    if ( isLess != 0 )
+                    // 自分自身か、フィルターをパスできなければ戻る。
+                    if ( cData[i].hashCode == myData.hashCode || judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
-                        score = targetData.liveData.def.dark;
-                        return 1;
+                        continue;
+                    }
+                    // マンハッタン距離で遠近判断
+                    float distance = Math.Abs(myPositionX - cData[i].liveData.nowPosition.x) +
+                                    Math.Abs(myPositionY - cData[i].liveData.nowPosition.y);
+
+                    // 一番高いやつを求める。
+                    if ( isInvert == 0 )
+                    {
+                        if ( distance > score )
+                        {
+                            score = (int)distance;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める。
+                    else
+                    {
+                        if ( distance < score )
+                        {
+                            score = (int)distance;
+                            index = i;
+                        }
                     }
                 }
-                return 0;
+
+                return index;
+
+            case TargetSelectCondition.自分:
+                return myData.hashCode;
+
+            case TargetSelectCondition.プレイヤー:
+                // 何かしらのシングルトンにプレイヤーのHashは持たせとこ
+                // newTargetHash = characterData[i].hashCode;
+                return -1;
+
+            case TargetSelectCondition.指定なし_ヘイト値:
+                // ターゲット選定ループ
+                for ( int i = 0; i < cData.Length; i++ )
+                {
+                    // 自分自身か、フィルターをパスできなければ戻る。
+                    if ( i == index || judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                    {
+                        continue;
+                    }
+                    // ヘイト値を確認
+                    int targetHash = cData[i].hashCode;
+                    int targetHate = 0;
+                    if ( cData[index].personalHate.ContainsKey(targetHash) )
+                    {
+                        targetHate += (int)cData[index].personalHate[targetHash];
+                    }
+                    // チームのヘイトはint2で確認する。
+                    int2 hateKey = new int2((int)cData[index].liveData.belong, targetHash);
+                    if ( tHate.ContainsKey(hateKey) )
+                    {
+                        targetHate += tHate[hateKey];
+                    }
+                    // 一番高いやつを求める。
+                    if ( judgeData.isInvert == BitableBool.FALSE )
+                    {
+                        if ( targetHate > score )
+                        {
+                            score = targetHate;
+                            index = i;
+                        }
+                    }
+                    // 一番低いやつを求める。
+                    else
+                    {
+                        if ( targetHate < score )
+                        {
+                            score = targetHate;
+                            index = i;
+                        }
+                    }
+                }
+                break;
 
             default:
                 // デフォルトケース（未定義の条件の場合）
                 Debug.LogWarning($"未定義のターゲット選択条件: {condition}");
-                return 0;
+                return -1;
         }
+
+        return -1;
     }
 
     #endregion ターゲット判断処理

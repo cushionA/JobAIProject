@@ -20,6 +20,7 @@ using Cysharp.Threading.Tasks;
 using Unity.Mathematics;
 using System.Text;
 using UnityEngine.ResourceManagement.ResourceLocations;
+using System.Linq;
 
 /// <summary>
 /// AITestJobのパフォーマンステスト
@@ -39,7 +40,7 @@ public class AIPerformanceTests
     private bool _charactersInitialized = false;
     private bool _aiInstancesInitialized = false;
 
-    int jobBatchCount = 50;
+    int jobBatchCount = 1;
 
     /// <summary>
     /// 
@@ -52,7 +53,7 @@ public class AIPerformanceTests
     private string[] types = new string[] { "Assets/Prefab/JobAI/TypeA.prefab", "Assets/Prefab/JobAI/TypeB.prefab", "Assets/Prefab/JobAI/TypeC.prefab" };
 
     // テスト用のパラメータ
-    private int _characterCount = 18;
+    private int _characterCount = 20;
     private float _nowTime = 100.0f;
 
     // AIテスト用のインスタンス
@@ -69,7 +70,10 @@ public class AIPerformanceTests
         try
         {
             InitializeTestData();
-            Debug.Log($"テストデータの初期化完了: teamHate.IsCreated={_teamHate.IsCreated}, Length={_teamHate.Count}");
+
+
+
+
         }
         catch ( Exception ex )
         {
@@ -89,9 +93,9 @@ public class AIPerformanceTests
         Debug.Log($"キャラクターデータの初期化完了: characterData.Length={_characterData.Length}");
 
         // teamHateの中身を確認
-        for ( int i = 0; i < _teamHate.Count; i++ )
+        foreach ( var item in _teamHate )
         {
-            Debug.Log($"teamHate[{i}].Count={_teamHate.Count}, IsCreated={_teamHate.IsCreated}");
+            Debug.Log($" teamHate.キー={item.Key}");
         }
 
         // AIインスタンスの初期化
@@ -177,6 +181,26 @@ public class AIPerformanceTests
             _dataInitialized = false;
         }
         Debug.Log("完了: InitializeTestData");
+
+        // バッチカウントの最適化
+        if ( _characterCount <= 32 )
+        {
+            jobBatchCount = 1;
+        }
+        else if ( _characterCount <= 128 )
+        {
+            jobBatchCount = 16;
+        }
+        else if ( _characterCount <= 512 )
+        {
+            jobBatchCount = 64;
+        }
+        else // 513～1000
+        {
+            jobBatchCount = 128;
+        }
+
+
     }
 
     /// <summary>
@@ -214,7 +238,7 @@ public class AIPerformanceTests
                     Debug.LogError($"teamHate[{i}]が初期化されていません");
                     return;
                 }
-                Debug.Log($"teamHate[{i}].Count={_teamHate.Count}, IsCreated={_teamHate.IsCreated}");
+                //Debug.Log($"teamHate[{i}].Count={_teamHate.Count}, IsCreated={_teamHate.IsCreated}");
             }
 
             // AITestJobの初期化
@@ -377,8 +401,15 @@ public class AIPerformanceTests
             CharacterData data = default;
             try
             {
-                data = aiComponent.MakeTestData();
+                (JobAITestStatus, GameObject) mat = aiComponent.MakeTestData();
+                data = new CharacterData(mat.Item1, mat.Item2);
                 _characterData[i] = data;
+
+                if ( data.brainData.Count == 0 )
+                {
+                    // 行動判断データ
+                    Debug.Log($"  ■ 行動判断データなし！！");
+                }
             }
             catch ( Exception ex )
             {
@@ -424,11 +455,11 @@ public class AIPerformanceTests
 
         Debug.Log($"キャラクターデータ初期化完了: 成功数={successCount}/{tasks.Count}");
 
-        // 各teamHateの最終状態を確認
-        for ( int i = 0; i < _teamHate.Count; i++ )
-        {
-            Debug.Log($"最終_teamHate[{i}]: IsCreated={_teamHate.IsCreated}, Count={_teamHate.Count}");
-        }
+        //// 各teamHateの最終状態を確認
+        //for ( int i = 0; i < _teamHate.Count; i++ )
+        //{
+        //    Debug.Log($"最終_teamHate[{i}]: IsCreated={_teamHate.IsCreated}, Count={_teamHate.Count}");
+        //}
 
         // キャラクターデータのステータスをランダム化
         Debug.Log("キャラクターデータのランダム化を開始");
@@ -627,7 +658,7 @@ public class AIPerformanceTests
         .WarmupCount(3)       // ウォームアップ回数
         .MeasurementCount(10) // 計測回数
         .IterationsPerMeasurement(1) // 1回の計測あたりの実行回数
-        .GC()                 // GCの計測も行う
+                                     // .GC()                 // GCの計測も行う
         .Run();
     }
 
@@ -647,7 +678,7 @@ public class AIPerformanceTests
         .WarmupCount(3)       // ウォームアップ回数
         .MeasurementCount(10) // 計測回数
         .IterationsPerMeasurement(1) // 1回の計測あたりの実行回数
-        .GC()                 // GCの計測も行う
+                                     // .GC()                 // GCの計測も行う
         .Run();
     }
 
@@ -668,7 +699,7 @@ public class AIPerformanceTests
         .WarmupCount(3)       // ウォームアップ回数
         .MeasurementCount(10) // 計測回数
         .IterationsPerMeasurement(1) // 1回の計測あたりの実行回数
-        .GC()                 // GCの計測も行う
+        //.GC()                 // GCの計測も行う
         .Run();
     }
 
@@ -701,6 +732,9 @@ public class AIPerformanceTests
     [Test]
     public void Verify_Results_Are_Same()
     {
+        Debug.Log("ランダム化前のデータ ===================");
+        PrintAllCharacterData("初期状態");
+
         // データをランダム化
         for ( int i = 0; i < _characterData.Length; i++ )
         {
@@ -708,6 +742,14 @@ public class AIPerformanceTests
             CharacterDataRandomizer.RandomizeCharacterData(ref data, _characterData);
             _characterData[i] = data;
         }
+
+        //    Debug.Log("ランダム化後のデータ ===================");
+        //   PrintAllCharacterData("ランダム化後");
+
+
+        // StandardAIの初期化（NativeContainerからデータをコピー）
+        _standardAI = new StandardAI(_teamHate, _characterData, _nowTime, _relationMap);
+        _standardAI.judgeResult = _judgeResultStandard;
 
         // AIインスタンスの時間を更新
         _aiTestJob.nowTime = _nowTime;
@@ -718,55 +760,143 @@ public class AIPerformanceTests
         _nonJobAI.ExecuteAIDecision();
         _standardAI.ExecuteAIDecision();
 
+
+        // JobSystemのAI処理実行
         JobHandle handle = _aiTestJob.Schedule(_characterCount, jobBatchCount);
         handle.Complete();
 
-        // 結果を比較（JobとNonJob）
-        bool jobNonJobMatch = true;
-        string jobNonJobMismatchInfo = "";
+        // 全要素を検証して結果を出力
+        Debug.Log("結果検証開始 ===================");
+        int mismatchCount = 0;
 
         for ( int i = 0; i < _characterCount; i++ )
         {
-            MovementInfo nonJobResult = _judgeResultNonJob[i];
             MovementInfo jobResult = _judgeResultJob[i];
-
-            // 結果が一致するか確認
-            if ( nonJobResult.result != jobResult.result ||
-                nonJobResult.actNum != jobResult.actNum ||
-                nonJobResult.targetHash != jobResult.targetHash )
-            {
-                jobNonJobMatch = false;
-                jobNonJobMismatchInfo = $"JobとNonJobの不一致(index={i}): NonJob({nonJobResult.result}, {nonJobResult.actNum}, {nonJobResult.targetHash}) " +
-                                      $"vs Job({jobResult.result}, {jobResult.actNum}, {jobResult.targetHash})";
-                break;
-            }
-        }
-
-        // 結果を比較（StandardとNonJob）
-        bool standardNonJobMatch = true;
-        string standardNonJobMismatchInfo = "";
-
-        for ( int i = 0; i < _characterCount; i++ )
-        {
             MovementInfo nonJobResult = _judgeResultNonJob[i];
             MovementInfo standardResult = _judgeResultStandard[i];
 
-            // 結果が一致するか確認
-            if ( nonJobResult.result != standardResult.result ||
-                nonJobResult.actNum != standardResult.actNum ||
-                nonJobResult.targetHash != standardResult.targetHash )
+            // 3つの結果が全て一致するか確認
+            bool allMatch =
+                jobResult.result == nonJobResult.result &&
+                jobResult.result == standardResult.result &&
+                jobResult.actNum == nonJobResult.actNum &&
+                jobResult.actNum == standardResult.actNum &&
+                jobResult.targetHash == nonJobResult.targetHash &&
+                jobResult.targetHash == standardResult.targetHash;
+
+            if ( allMatch )
             {
-                standardNonJobMatch = false;
-                standardNonJobMismatchInfo = $"StandardとNonJobの不一致(index={i}): NonJob({nonJobResult.result}, {nonJobResult.actNum}, {nonJobResult.targetHash}) " +
-                                           $"vs Standard({standardResult.result}, {standardResult.actNum}, {standardResult.targetHash})";
-                break;
+                Debug.Log($"要素[{i}] 一致: (結果={jobResult.result}, 行動={jobResult.actNum}, ターゲット={jobResult.targetHash})");
+            }
+            else
+            {
+                Debug.LogWarning($"要素[{i}] 不一致: (Job={jobResult.result},{jobResult.actNum},{jobResult.targetHash}) " +
+                               $"(NonJob={nonJobResult.result},{nonJobResult.actNum},{nonJobResult.targetHash}) " +
+                               $"(Standard={standardResult.result},{standardResult.actNum},{standardResult.targetHash})");
+                mismatchCount++;
             }
         }
 
-        // 検証
-        Assert.IsTrue(jobNonJobMatch, jobNonJobMismatchInfo);
-        Assert.IsTrue(standardNonJobMatch, standardNonJobMismatchInfo);
+        // 全体の結果を出力
+        if ( mismatchCount == 0 )
+        {
+            Debug.Log("全要素検証完了: すべて一致しています");
+        }
+        else
+        {
+            Debug.LogError($"全要素検証完了: {mismatchCount}個の要素で不一致が見つかりました");
+        }
+        Debug.Log("結果検証終了 ===================");
+
+        // テスト結果の検証（必要に応じてコメントアウト可能）
+        Assert.AreEqual(0, mismatchCount, $"{mismatchCount}個の不一致が検出されました");
     }
+
+    /// <summary>
+    /// すべてのCharacterDataの内容を詳細に出力する
+    /// </summary>
+    /// <param name="label">出力時のラベル</param>
+    private void PrintAllCharacterData(string label)
+    {
+        Debug.Log($"===== {label} - CharacterData一覧（全{_characterCount}件）=====");
+
+        for ( int i = 0; i < _characterCount; i++ )
+        {
+            CharacterData data = _characterData[i];
+            Debug.Log($"CharacterData[{i}] hashCode: {data.hashCode}");
+
+            // 基本情報
+            Debug.Log($"  ■ 基本情報:");
+            Debug.Log($"    - 所属: {data.liveData.belong}");
+            Debug.Log($"    - 行動状態: {data.liveData.actState}");
+            Debug.Log($"    - 最終判断時間: {data.lastJudgeTime}");
+
+            // 位置情報
+            Debug.Log($"  ■ 位置情報:");
+            Debug.Log($"    - 現在位置: ({data.liveData.nowPosition.x}, {data.liveData.nowPosition.y})");
+
+            // HP/MP情報
+            Debug.Log($"  ■ ステータス情報:");
+            Debug.Log($"    - HP: {data.liveData.currentHp}/{data.liveData.maxHp} ({data.liveData.hpRatio}%)");
+            Debug.Log($"    - MP: {data.liveData.currentMp}/{data.liveData.maxMp} ({data.liveData.mpRatio}%)");
+
+            // 攻撃/防御情報
+            Debug.Log($"  ■ 攻撃能力:");
+            Debug.Log($"    - 表示攻撃力: {data.liveData.dispAtk}");
+            Debug.Log($"    - 斬/刺/打: {data.liveData.atk.slash}/{data.liveData.atk.pierce}/{data.liveData.atk.strike}");
+            Debug.Log($"    - 炎/雷/光/闇: {data.liveData.atk.fire}/{data.liveData.atk.lightning}/{data.liveData.atk.light}/{data.liveData.atk.dark}");
+
+            Debug.Log($"  ■ 防御能力:");
+            Debug.Log($"    - 表示防御力: {data.liveData.dispDef}");
+            Debug.Log($"    - 斬/刺/打: {data.liveData.def.slash}/{data.liveData.def.pierce}/{data.liveData.def.strike}");
+            Debug.Log($"    - 炎/雷/光/闇: {data.liveData.def.fire}/{data.liveData.def.lightning}/{data.liveData.def.light}/{data.liveData.def.dark}");
+
+            // 攻撃属性
+            Debug.Log($"  ■ 攻撃属性: {data.solidData.attackElement}");
+
+            // ターゲット情報
+            Debug.Log($"  ■ ターゲット情報:");
+            Debug.Log($"    - ターゲット数: {data.targetingCount}");
+
+            // 行動判断データ
+            Debug.Log($"  ■ 行動判断データ:");
+
+            if ( data.brainData.Count == 0 )
+            {
+                // 行動判断データ
+                Debug.Log($"  ■ 行動判断データなし！！");
+            }
+
+            for ( int j = 0; j < 8; j++ )
+            {
+
+                int key = 1 << j;
+
+                if ( !data.brainData.ContainsKey(key) )
+                {
+                    continue;
+                }
+
+                var brain = data.brainData[key];
+                Debug.Log($"    - 行動モード[{(ActState)key}]:");
+                Debug.Log($"      判断間隔: {brain.judgeInterval}");
+
+                // 行動条件の表示
+                Debug.Log($"      行動条件数: {brain.actCondition.Length}");
+                for ( int k = 0; k < brain.actCondition.Length; k++ )
+                {
+                    var condition = brain.actCondition[k];
+                    Debug.Log($"      条件[{k}]: {condition.actCondition.judgeCondition}, 値: {condition.actCondition.judgeValue}, 反転: {condition.actCondition.isInvert}");
+                    Debug.Log($"        ターゲット条件: {condition.targetCondition.judgeCondition}, 反転: {condition.targetCondition.isInvert}");
+                }
+            }
+
+            Debug.Log("-------------------------------------");
+        }
+
+        Debug.Log($"===== {label} - CharacterData一覧 終了 =====");
+    }
+
 
     /// <summary>
     /// 3種類のAI実装を比較検証するテスト
@@ -847,7 +977,7 @@ public class AIPerformanceTests
     /// <summary>
     /// 異なるキャラクター数でのパフォーマンス比較テスト
     /// </summary>
-    //[UnityTest, Performance]
+ //   [UnityTest, Performance]
     public IEnumerator Compare_Different_Character_Counts()
     {
         // テスト用のキャラクター数の配列

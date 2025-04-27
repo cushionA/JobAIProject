@@ -163,9 +163,7 @@ public class JobAITestStatus : SerializedScriptableObject
 
     /// <summary>
     /// ‘®«‚Ì—ñ‹“Œ^
-    /// ó‘ÔˆÙí‚Íœ‚­‚©
-    /// 
-    /// 
+    /// ó‘ÔˆÙí‚Í•ª‚¯‚éB
     /// </summary>
     [Flags]
     public enum Element

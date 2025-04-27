@@ -108,7 +108,7 @@ public struct NonJobAI
                             characterData[i],
                             teamHate) )
                         {
-                            selectMove = i;
+                            selectMove = j;
 
                             // enableConditionのbitも消す
                             // i桁目までのビットをすべて1にするマスクを作成
@@ -261,7 +261,12 @@ public struct NonJobAI
                 // 待機に移行
                 resultData.result = JudgeResult.新しく判断をした;
                 resultData.actNum = (int)ActState.待機;
+                return;
             }
+
+            resultData.result = JudgeResult.新しく判断をした;
+            resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
+            resultData.targetHash = newTargetHash;
 
             // 判断結果を設定
             judgeResult[index] = resultData;
@@ -326,7 +331,7 @@ public struct NonJobAI
     /// <param name="charaData"></param>
     /// <param name="nowHate"></param>
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static bool CheckActCondition(in BehaviorData condition, in CharacterData myData, in CharacterData targetData, NativeHashMap<int2, int> tHate)
+    public static bool CheckActCondition(in BehaviorData condition, in CharacterData myData, in CharacterData targetData, in NativeHashMap<int2, int> tHate)
     {
         bool result = true;
 
@@ -465,6 +470,7 @@ public struct NonJobAI
     public static int JudgeTargetByCondition(in TargetJudgeData judgeData, in CharacterData targetData, ref int score)
     {
         TargetSelectCondition condition = judgeData.judgeCondition;
+        int isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
         switch ( condition )
         {
             case TargetSelectCondition.高度:
@@ -475,10 +481,10 @@ public struct NonJobAI
                 }
 
                 int height = (int)targetData.liveData.nowPosition.y;
-                int isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める (isInvert == 1)
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = height > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -506,10 +512,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.hpRatio > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -537,10 +543,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.currentHp > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -568,10 +574,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.targetingCount > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -599,10 +605,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.dispAtk > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -630,10 +636,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.dispDef > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -661,10 +667,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.atk.slash > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -692,10 +698,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.atk.pierce > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -723,10 +729,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.atk.strike > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -754,10 +760,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.atk.fire > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -785,10 +791,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.atk.lightning > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -816,10 +822,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.atk.light > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -847,10 +853,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.atk.dark > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -878,10 +884,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.def.slash > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -909,10 +915,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.def.pierce > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -940,10 +946,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.def.strike > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -971,10 +977,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.def.fire > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -1002,10 +1008,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.def.lightning > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -1033,10 +1039,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.def.light > score ? 1 : 0;
                     if ( isGreater != 0 )
@@ -1064,10 +1070,10 @@ public struct NonJobAI
                     return 0;
                 }
 
-                isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
 
                 // 一番高いやつを求める
-                if ( isInvert != 0 )
+                if ( isInvert == 0 )
                 {
                     int isGreater = targetData.liveData.def.dark > score ? 1 : 0;
                     if ( isGreater != 0 )

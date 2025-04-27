@@ -362,7 +362,8 @@ public class AIPerformanceTestsDebug
             CharacterData data = default;
             try
             {
-                data = aiComponent.MakeTestData();
+                (JobAITestStatus, GameObject) mat = aiComponent.MakeTestData();
+                data = new CharacterData(mat.Item1, mat.Item2);
                 _characterData[i] = data;
             }
             catch ( Exception ex )

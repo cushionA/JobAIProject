@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: TypeAJobStatus
   m_EditorClassIdentifier: 
   serializationData:
-    SerializedFormat: 2
+    SerializedFormat: 0
     SerializedBytes: 
     ReferencedUnityObjects: []
     SerializedBytesString: 
@@ -47,7 +47,7 @@ MonoBehaviour:
     displayDef: 0
     attackElement: 83
     weakPoint: 85
-    feature: 0
+    feature: 1706
     rank: 0
     targetingLimit: 7
   brainData:
@@ -60,55 +60,55 @@ MonoBehaviour:
           judgeValue: 0
           isInvert: 0
         actCondition:
-          judgeCondition: 6
-          judgeValue: 0
-          isInvert: 0
+          judgeCondition: 2
+          judgeValue: 1
+          isInvert: 1
           stateChange: 0
           filter:
             targetType: 1
-            targetFeature: 61374
+            targetFeature: 0
             isAndFeatureCheck: 0
             targetEffect: 0
             isAndEffectCheck: 0
-            targetState: 255
+            targetState: 0
             targetEvent: 0
             isAndEventCheck: 0
-            targetWeakPoint: 175
-            targetUseElement: 127
+            targetWeakPoint: 0
+            targetUseElement: 0
         targetCondition:
           judgeCondition: 0
-          isInvert: 0
+          isInvert: 1
           filter:
             targetType: 1
-            targetFeature: 61374
+            targetFeature: 0
             isAndFeatureCheck: 0
             targetEffect: 0
             isAndEffectCheck: 0
-            targetState: 255
+            targetState: 4
             targetEvent: 0
             isAndEventCheck: 0
-            targetWeakPoint: 175
-            targetUseElement: 127
-          useAttackOrHateNum: 0
+            targetWeakPoint: 0
+            targetUseElement: 0
+          useAttackOrHateNum: 1
       - skipData:
           skipCondition: 0
           judgeValue: 80
           isInvert: 0
         actCondition:
-          judgeCondition: 4
+          judgeCondition: 2
           judgeValue: 20
           isInvert: 1
           stateChange: 0
           filter:
             targetType: 1
-            targetFeature: 61374
+            targetFeature: 0
             isAndFeatureCheck: 0
             targetEffect: 0
             isAndEffectCheck: 0
             targetState: 255
             targetEvent: 0
             isAndEventCheck: 0
-            targetWeakPoint: 175
+            targetWeakPoint: 0
             targetUseElement: 127
         targetCondition:
           judgeCondition: 5

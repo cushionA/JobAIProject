@@ -562,9 +562,9 @@ public class JTestAIBase : MonoBehaviour
 
     }
 
-    public CharacterData MakeTestData()
+    public (JobAITestStatus, GameObject) MakeTestData()
     {
-        return new CharacterData(status, this.gameObject);
+        return (status, this.gameObject);
     }
 
 }

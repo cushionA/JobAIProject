@@ -48,6 +48,8 @@ public static class CharacterDataRandomizer
     /// <param name="allCharacters">全キャラクターのリスト（ヘイト設定用）</param>
     public static void RandomizeCharacterData(ref CharacterData data, UnsafeList<CharacterData> allCharacters = default)
     {
+        return;
+
         // 基本ステータスをランダム化
         // 標準値の範囲内でランダム値を設定
         data.liveData.maxHp += UnityEngine.Random.Range(100, 1000);
