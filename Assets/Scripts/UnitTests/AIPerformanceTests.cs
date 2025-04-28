@@ -53,7 +53,7 @@ public class AIPerformanceTests
     private string[] types = new string[] { "Assets/Prefab/JobAI/TypeA.prefab", "Assets/Prefab/JobAI/TypeB.prefab", "Assets/Prefab/JobAI/TypeC.prefab" };
 
     // テスト用のパラメータ
-    private int _characterCount = 20;
+    private int _characterCount = 300;
     private float _nowTime = 100.0f;
 
     // AIテスト用のインスタンス
@@ -93,10 +93,10 @@ public class AIPerformanceTests
         Debug.Log($"キャラクターデータの初期化完了: characterData.Length={_characterData.Length}");
 
         // teamHateの中身を確認
-        foreach ( var item in _teamHate )
-        {
-            Debug.Log($" teamHate.キー={item.Key}");
-        }
+        //foreach ( var item in _teamHate )
+        //{
+        //    Debug.Log($" teamHate.キー={item.Key}");
+        //}
 
         // AIインスタンスの初期化
         try
@@ -735,13 +735,13 @@ public class AIPerformanceTests
         Debug.Log("ランダム化前のデータ ===================");
         PrintAllCharacterData("初期状態");
 
-        // データをランダム化
-        for ( int i = 0; i < _characterData.Length; i++ )
-        {
-            CharacterData data = _characterData[i];
-            CharacterDataRandomizer.RandomizeCharacterData(ref data, _characterData);
-            _characterData[i] = data;
-        }
+        //// データをランダム化
+        //for ( int i = 0; i < _characterData.Length; i++ )
+        //{
+        //    CharacterData data = _characterData[i];
+        //    CharacterDataRandomizer.RandomizeCharacterData(ref data, _characterData);
+        //    _characterData[i] = data;
+        //}
 
         //    Debug.Log("ランダム化後のデータ ===================");
         //   PrintAllCharacterData("ランダム化後");

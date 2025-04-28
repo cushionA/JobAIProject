@@ -124,29 +124,32 @@ public struct StandardAI
             if ( nowTime - charaSpan[index].lastJudgeTime < charaSpan[index].brainData[nowMode].judgeInterval )
             {
                 resultData.result = JudgeResult.何もなし;
-                resultSpan[index] = resultData;
+                judgeResult[index] = resultData;
                 continue;
             }
+
+            CharacterData myData = charaSpan[index];
 
             // 行動条件の中で前提を満たしたものを取得するビット
             int enableCondition = 0;
 
             // 前提となる自分についてのスキップ条件を確認
             // 最後の条件は補欠条件なので無視
-            for ( int i = 0; i < charaSpan[index].brainData[nowMode].actCondition.Length - 1; i++ )
+            for ( int i = 0; i < myData.brainData[nowMode].actCondition.Length - 1; i++ )
             {
-                SkipJudgeData skipData = charaSpan[index].brainData[nowMode].actCondition[i].skipData;
+
+                SkipJudgeData skipData = myData.brainData[nowMode].actCondition[i].skipData;
 
                 // スキップ条件を解釈して判断
-                if ( skipData.skipCondition == SkipJudgeCondition.条件なし || JudgeSkipByCondition(skipData, charaSpan[index]) == 1 )
+                if ( skipData.skipCondition == SkipJudgeCondition.条件なし || JudgeSkipByCondition(skipData, myData) == 1 )
                 {
-                    enableCondition |= 1 << i; // |= が正しい（ビットを立てる）
+                    enableCondition |= 1 << i;
                 }
             }
 
             // 条件を満たした行動の中で最も優先的なもの
             // 初期値は最後の条件、つまり条件なしの補欠条件
-            int selectMove = charaSpan[index].brainData[nowMode].actCondition.Length - 1;
+            int selectMove = myData.brainData[nowMode].actCondition.Length - 1;
 
             // キャラデータを確認する
             for ( int i = 0; i < charaSpan.Length; i++ )
@@ -160,28 +163,24 @@ public struct StandardAI
                 // 行動判断
                 if ( enableCondition != 0 )
                 {
-                    for ( int j = 0; j < charaSpan[index].brainData[nowMode].actCondition.Length - 1; j++ )
+                    for ( int j = 0; j < myData.brainData[nowMode].actCondition.Length - 1; j++ )
                     {
-                        // ビットが立っているかチェック
-                        if ( (enableCondition & (1 << j)) != 0 )
+                        // ある条件満たしたらbreakして、以降はそれ以下の条件もう見ない
+                        if ( CheckActCondition(
+                            myData.brainData[nowMode].actCondition[j],
+                            myData,
+                            charaSpan[i],
+                            teamHate) )
                         {
-                            // ある条件満たしたらbreakして、以降はそれ以下の条件もう見ない
-                            if ( CheckActCondition(
-                                charaSpan[index].brainData[nowMode].actCondition[j],
-                                charaSpan[index],
-                                charaSpan[i],
-                                teamHate) )
-                            {
-                                selectMove = j; // 条件のインデックス
+                            selectMove = j;
 
-                                // enableConditionのbitも消す
-                                // j桁目までのビットをすべて1にするマスクを作成
-                                int mask = (1 << j) - 1;
+                            // enableConditionのbitも消す
+                            // i桁目までのビットをすべて1にするマスクを作成
+                            int mask = (1 << j) - 1;
 
-                                // マスクと元の値の論理積を取ることで上位ビットをクリア
-                                enableCondition = enableCondition & mask;
-                                break;
-                            }
+                            // マスクと元の値の論理積を取ることで上位ビットをクリア
+                            enableCondition = enableCondition & mask;
+                            break;
                         }
                     }
                 }
@@ -194,7 +193,7 @@ public struct StandardAI
 
             // 最も条件に近いターゲットを確認する
             // 比較用初期値はInvertによって変動
-            TargetJudgeData targetJudgeData = charaSpan[index].brainData[nowMode].actCondition[selectMove].targetCondition;
+            TargetJudgeData targetJudgeData = myData.brainData[nowMode].actCondition[selectMove].targetCondition;
             int nowValue = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
             int newTargetHash = 0;
 
@@ -206,20 +205,30 @@ public struct StandardAI
                 resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
 
                 // 判断結果を設定
-                resultSpan[index] = resultData;
+                judgeResult[index] = resultData;
                 continue;
             }
+
+            // それ以外であればターゲットを判断
             else
             {
-                // ターゲット選定ループ
-
-                // ハッシュを取得
-                int tIndex = JudgeTargetByCondition(targetJudgeData, charaSpan, index, teamHate);
+                int tIndex = JudgeTargetByCondition(targetJudgeData, charaSpan, myData, teamHate);
                 if ( tIndex >= 0 )
                 {
-                    newTargetHash = characterData[tIndex].hashCode;
+                    newTargetHash = charaSpan[tIndex].hashCode;
+
+                    //   Debug.Log($"ターゲット判断成功:{tIndex}のやつ。  Hash：{newTargetHash}");
+                }
+                // ここでターゲット見つかってなければ待機に移行。
+                else
+                {
+                    // 待機に移行
+                    resultData.result = JudgeResult.新しく判断をした;
+                    resultData.actNum = (int)ActState.待機;
+                    //  Debug.Log($"ターゲット判断失敗　行動番号{selectMove}");
                 }
             }
+
 
             // ここでターゲット見つかってなければ待機に移行
             if ( newTargetHash == 0 )
@@ -227,17 +236,15 @@ public struct StandardAI
                 // 待機に移行
                 resultData.result = JudgeResult.新しく判断をした;
                 resultData.actNum = (int)ActState.待機;
-            }
-            else
-            {
-                // ターゲットを設定
-                resultData.result = JudgeResult.新しく判断をした;
-                resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
-                resultData.targetHash = newTargetHash;
+                return;
             }
 
+            resultData.result = JudgeResult.新しく判断をした;
+            resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
+            resultData.targetHash = newTargetHash;
+
             // 判断結果を設定
-            resultSpan[index] = resultData;
+            judgeResult[index] = resultData;
         }
     }
 
@@ -338,6 +345,10 @@ public struct StandardAI
 
                 return result;
 
+            // 集計は廃止
+            //case ActJudgeCondition.対象が一定数の時:
+            //    return HasRequiredNumberOfTargets(context);
+
             case ActJudgeCondition.HPが一定割合の対象がいる時:
 
                 // 通常は以上、逆の場合は以下
@@ -421,13 +432,34 @@ public struct StandardAI
     /// TargetConditionに基づいて判定を行うメソッド
     /// </summary>
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int JudgeTargetByCondition(in TargetJudgeData judgeData, ReadOnlySpan<CharacterData> cData, int myIndex, Dictionary<int2, int> tHate)
+    public static int JudgeTargetByCondition(in TargetJudgeData judgeData, in ReadOnlySpan<CharacterData> cData, in CharacterData myData, Dictionary<int2, int> tHate)
     {
-        int score = judgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
+
         int index = -1;
 
         TargetSelectCondition condition = judgeData.judgeCondition;
-        int isInvert = judgeData.isInvert == BitableBool.TRUE ? 1 : 0;
+
+        int isInvert;
+        int score;
+
+        // 逆だから小さいのを探すので最大値入れる
+        if ( judgeData.isInvert == BitableBool.TRUE )
+        {
+            isInvert = 1;
+            score = int.MaxValue;
+        }
+        // 大きいのを探すので最小値スタート
+        else
+        {
+            isInvert = 0;
+            score = int.MinValue;
+        }
+
+        //if ( judgeData.judgeCondition == TargetSelectCondition.高度 && isInvert == 1 )
+        //{
+        //    Debug.Log($" 逆{judgeData.isInvert == BitableBool.TRUE} スコア初期{score}");
+        //}
+
 
         switch ( condition )
         {
@@ -456,6 +488,7 @@ public struct StandardAI
                     // 一番低いやつを求める (isInvert == 0)
                     else
                     {
+                        //   Debug.Log($" 番号{index} 高さ{score} 現在の高さ{height}　条件{height < score}");
                         int isLess = height < score ? 1 : 0;
                         if ( isLess != 0 )
                         {
@@ -464,6 +497,8 @@ public struct StandardAI
                         }
                     }
                 }
+
+
 
                 return index;
 
@@ -1077,12 +1112,12 @@ public struct StandardAI
 
             case TargetSelectCondition.距離:
                 // 自分の位置をキャッシュ
-                float myPositionX = cData[myIndex].liveData.nowPosition.x;
-                float myPositionY = cData[myIndex].liveData.nowPosition.y;
+                float myPositionX = myData.liveData.nowPosition.x;
+                float myPositionY = myData.liveData.nowPosition.y;
                 for ( int i = 0; i < cData.Length; i++ )
                 {
                     // 自分自身か、フィルターをパスできなければ戻る。
-                    if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                    if ( cData[i].hashCode == myData.hashCode || judgeData.filter.IsPassFilter(cData[i]) == 0 )
                     {
                         continue;
                     }
@@ -1113,7 +1148,7 @@ public struct StandardAI
                 return index;
 
             case TargetSelectCondition.自分:
-                return myIndex;
+                return myData.hashCode;
 
             case TargetSelectCondition.プレイヤー:
                 // 何かしらのシングルトンにプレイヤーのHashは持たせとこ
@@ -1142,7 +1177,6 @@ public struct StandardAI
                     {
                         targetHate += tHate[hateKey];
                     }
-
                     // 一番高いやつを求める。
                     if ( judgeData.isInvert == BitableBool.FALSE )
                     {

@@ -60,9 +60,9 @@ MonoBehaviour:
           judgeValue: 20
           isInvert: 0
         actCondition:
-          judgeCondition: 6
+          judgeCondition: 2
           judgeValue: 0
-          isInvert: 0
+          isInvert: 1
           stateChange: 0
           filter:
             targetType: 1
@@ -79,8 +79,8 @@ MonoBehaviour:
           judgeCondition: 13
           isInvert: 0
           filter:
-            targetType: 1
-            targetFeature: 61374
+            targetType: 2
+            targetFeature: 0
             isAndFeatureCheck: 0
             targetEffect: 0
             isAndEffectCheck: 0
@@ -100,7 +100,7 @@ MonoBehaviour:
           isInvert: 1
           stateChange: 0
           filter:
-            targetType: 1
+            targetType: 0
             targetFeature: 61374
             isAndFeatureCheck: 0
             targetEffect: 0
@@ -111,19 +111,19 @@ MonoBehaviour:
             targetWeakPoint: 175
             targetUseElement: 127
         targetCondition:
-          judgeCondition: 5
+          judgeCondition: 4
           isInvert: 1
           filter:
-            targetType: 1
-            targetFeature: 61374
+            targetType: 0
+            targetFeature: 0
             isAndFeatureCheck: 0
             targetEffect: 0
             isAndEffectCheck: 0
-            targetState: 255
+            targetState: 15
             targetEvent: 0
             isAndEventCheck: 0
-            targetWeakPoint: 175
-            targetUseElement: 127
+            targetWeakPoint: 0
+            targetUseElement: 0
           useAttackOrHateNum: 0
       - skipData:
           skipCondition: 0
@@ -131,11 +131,11 @@ MonoBehaviour:
           isInvert: 1
         actCondition:
           judgeCondition: 3
-          judgeValue: 60
+          judgeValue: 100
           isInvert: 1
           stateChange: 1
           filter:
-            targetType: 1
+            targetType: 0
             targetFeature: 61374
             isAndFeatureCheck: 0
             targetEffect: 0
@@ -149,7 +149,7 @@ MonoBehaviour:
           judgeCondition: 18
           isInvert: 1
           filter:
-            targetType: 1
+            targetType: 0
             targetFeature: 61374
             isAndFeatureCheck: 0
             targetEffect: 0

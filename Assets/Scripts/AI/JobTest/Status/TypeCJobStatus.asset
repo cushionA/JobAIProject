@@ -60,8 +60,8 @@ MonoBehaviour:
           judgeValue: 0
           isInvert: 0
         actCondition:
-          judgeCondition: 6
-          judgeValue: 0
+          judgeCondition: 1
+          judgeValue: 1000
           isInvert: 0
           stateChange: 0
           filter:
@@ -80,11 +80,11 @@ MonoBehaviour:
           isInvert: 0
           filter:
             targetType: 1
-            targetFeature: 61374
+            targetFeature: 132
             isAndFeatureCheck: 0
             targetEffect: 0
             isAndEffectCheck: 0
-            targetState: 255
+            targetState: 80
             targetEvent: 0
             isAndEventCheck: 0
             targetWeakPoint: 175
@@ -100,7 +100,7 @@ MonoBehaviour:
           isInvert: 1
           stateChange: 0
           filter:
-            targetType: 1
+            targetType: 2
             targetFeature: 61374
             isAndFeatureCheck: 0
             targetEffect: 0
@@ -111,7 +111,7 @@ MonoBehaviour:
             targetWeakPoint: 175
             targetUseElement: 127
         targetCondition:
-          judgeCondition: 10
+          judgeCondition: 6
           isInvert: 1
           filter:
             targetType: 1
@@ -130,7 +130,7 @@ MonoBehaviour:
           judgeValue: 50
           isInvert: 1
         actCondition:
-          judgeCondition: 3
+          judgeCondition: 0
           judgeValue: 60
           isInvert: 1
           stateChange: 1
@@ -154,10 +154,10 @@ MonoBehaviour:
             isAndFeatureCheck: 0
             targetEffect: 0
             isAndEffectCheck: 0
-            targetState: 255
+            targetState: 0
             targetEvent: 0
             isAndEventCheck: 0
-            targetWeakPoint: 218
+            targetWeakPoint: 0
             targetUseElement: 0
           useAttackOrHateNum: 0
       hateCondition:
