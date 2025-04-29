@@ -1,14 +1,10 @@
 using Cysharp.Threading.Tasks;
-using System.Security.Cryptography;
 using System;
-using System.Threading.Tasks;
-using UnityEngine;
-using UnityEngine.AddressableAssets;
+using System.Collections.Generic;
 //using UnityEngine.Rendering.Universal;
 using System.IO;
-using NUnit.Framework;
-using System.Collections.Generic;
-using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.AddressableAssets;
 //using UnityEditor.U2D.Aseprite;
 
 public class IdTestManager : MonoBehaviour
@@ -49,23 +45,22 @@ public class IdTestManager : MonoBehaviour
     private void Start()
     {
 
-        for ( int i = 0; i < objReference.Length; i++ )
+        for ( int i = 0; i < this.objReference.Length; i++ )
         {
-            for ( int j = 0; j < objectCount; j++ )
+            for ( int j = 0; j < this.objectCount; j++ )
             {
-                Addressables.InstantiateAsync(objReference[i]);
+                _ = Addressables.InstantiateAsync(this.objReference[i]);
             }
         }
 
-        TestEnd().Forget();
+        this.TestEnd().Forget();
     }
 
-    async UniTaskVoid TestEnd()
+    private async UniTaskVoid TestEnd()
     {
         await UniTask.Delay(TimeSpan.FromSeconds(10));
 
         IdTestObject[] objects = FindObjectsByType<IdTestObject>(sortMode: FindObjectsSortMode.None);
-
 
         List<string>[] ids = new List<string>[3];
         for ( int i = 0; i < ids.Length; i++ )
@@ -91,23 +86,22 @@ public class IdTestManager : MonoBehaviour
             }
         }
 
-        for ( int i = 0; i < resultPath.Length; i++ )
+        for ( int i = 0; i < this.resultPath.Length; i++ )
         {
 
             string absolutePath = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-    resultPath[i]);
+    this.resultPath[i]);
 
             // ファイルに新しい行を追加する
-            using ( StreamWriter sw = new StreamWriter(absolutePath, true) )
+            using StreamWriter sw = new(absolutePath, true);
+            sw.WriteLine($"オブジェクトタイプ：{i + 1}_{ids[i].Count}個 不一致：{unMatchCount[i]}個");
+            for ( int j = 0; j < ids[i].Count; j++ )
             {
-                sw.WriteLine($"オブジェクトタイプ：{i + 1}_{ids[i].Count}個 不一致：{unMatchCount[i]}個");
-                for ( int j = 0; j < ids[i].Count; j++ )
-                {
-                    sw.WriteLine(ids[i][j]);
-                }
-                sw.WriteLine(string.Empty);// 空行
+                sw.WriteLine(ids[i][j]);
             }
+
+            sw.WriteLine(string.Empty);// 空行
 
         }
 

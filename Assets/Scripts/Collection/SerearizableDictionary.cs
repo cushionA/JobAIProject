@@ -11,10 +11,10 @@ using static JobAITestStatus;
 public abstract class SerializableDictionary<TKey, TValue> : Dictionary<TKey, TValue>, ISerializationCallbackReceiver
 {
     [SerializeField, HideInInspector]
-    private List<TKey> keyData = new List<TKey>();
+    private List<TKey> keyData = new();
 
     [SerializeField, HideInInspector]
-    private List<TValue> valueData = new List<TValue>();
+    private List<TValue> valueData = new();
 
     void ISerializationCallbackReceiver.OnAfterDeserialize()
     {
@@ -42,4 +42,6 @@ public abstract class SerializableDictionary<TKey, TValue> : Dictionary<TKey, TV
 /// ActStateがキーでCharacterBrainStatusが値のディクショナリ
 /// </summary>
 [Serializable]
-public class ActStateBrainDictionary : SerializableDictionary<ActState, CharacterBrainStatus> { }
+public class ActStateBrainDictionary : SerializableDictionary<ActState, CharacterBrainStatus>
+{
+}

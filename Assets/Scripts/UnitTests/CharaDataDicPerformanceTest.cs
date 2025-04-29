@@ -1,16 +1,13 @@
+using NUnit.Framework;
+using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
-using NUnit.Framework;
+using System.IO;
+using Unity.PerformanceTesting;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.TestTools;
-using Unity.Collections;
-using Unity.PerformanceTesting;
-using System;
-using System.ComponentModel;
-using System.IO;
 
 public class CharacterDataDictionaryPerformanceTest
 {
@@ -36,14 +33,14 @@ public class CharacterDataDictionaryPerformanceTest
     public IEnumerator SetUp()
     {
         // テストオブジェクトのロードと生成
-        gameObjects = new GameObject[objectCount];
-        components1 = new DicTestData[objectCount];
-        components2 = new MyDicTestComponent[objectCount];
+        this.gameObjects = new GameObject[this.objectCount];
+        this.components1 = new DicTestData[this.objectCount];
+        this.components2 = new MyDicTestComponent[this.objectCount];
 
         // 複数のオブジェクトを並列でインスタンス化
-        var tasks = new List<AsyncOperationHandle<GameObject>>(objectCount);
+        var tasks = new List<AsyncOperationHandle<GameObject>>(this.objectCount);
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
             // Addressablesを使用してインスタンス化
             var task = Addressables.InstantiateAsync("Assets/Prefab/TestPrefab/MyDicTest.prefab");
@@ -57,64 +54,64 @@ public class CharacterDataDictionaryPerformanceTest
         }
 
         // 生成されたオブジェクトと必要なコンポーネントを取得
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
-            gameObjects[i] = tasks[i].Result;
-            gameObjects[i].name = $"TestObject_{i}";
+            this.gameObjects[i] = tasks[i].Result;
+            this.gameObjects[i].name = $"TestObject_{i}";
 
-            components2[i] = gameObjects[i].GetComponent<MyDicTestComponent>(); // 任意のMyDicTestComponentコンポーネント
-            components2[i].IDSet();
-            components1[i] = components2[i].data;
+            this.components2[i] = this.gameObjects[i].GetComponent<MyDicTestComponent>(); // 任意のMyDicTestComponentコンポーネント
+            this.components2[i].IDSet();
+            this.components1[i] = this.components2[i].data;
 
             // GetComponentが非nullであることを確認
-            Assert.IsNotNull(components1[i], $"オブジェクト {i} の DicTestData が見つかりません");
-            Assert.IsNotNull(components2[i], $"オブジェクト {i} の MyDicTestComponent が見つかりません");
+            Assert.IsNotNull(this.components1[i], $"オブジェクト {i} の DicTestData が見つかりません");
+            Assert.IsNotNull(this.components2[i], $"オブジェクト {i} の MyDicTestComponent が見つかりません");
         }
 
         // 辞書の初期化
-        standardDictionary = new Dictionary<GameObject, DicTestData>(objectCount);
-        customDictionary = new CharaDataDic<DicTestData>(objectCount);
-        dualDictionary = new CharacterDataDictionary<DicTestData, MyDicTestComponent>(objectCount);
+        this.standardDictionary = new Dictionary<GameObject, DicTestData>(this.objectCount);
+        this.customDictionary = new CharaDataDic<DicTestData>(this.objectCount);
+        this.dualDictionary = new CharacterDataDictionary<DicTestData, MyDicTestComponent>(this.objectCount);
 
         // 初期値をクリア
-        dataSum = 0;
+        this.dataSum = 0;
     }
 
     [TearDown]
     public void TearDown()
     {
         // 生成したオブジェクトの破棄
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
-            if ( gameObjects[i] != null )
+            if ( this.gameObjects[i] != null )
             {
-                Addressables.ReleaseInstance(gameObjects[i]);
+                _ = Addressables.ReleaseInstance(this.gameObjects[i]);
             }
         }
 
-        dataSum = 0;
+        this.dataSum = 0;
 
-        PrepareSequentialTest();
+        this.PrepareSequentialTest();
 
-        string[] matchingTest = new string[objectCount + 1];
+        string[] matchingTest = new string[this.objectCount + 1];
         int unMatchCount = 0;
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
-            dataSum += standardDictionary[gameObjects[i]].TestValue;
-            customSum += customDictionary[gameObjects[i]].TestValue;
-            charaSum += dualDictionary[gameObjects[i]].TestValue;
+            this.dataSum += this.standardDictionary[this.gameObjects[i]].TestValue;
+            this.customSum += this.customDictionary[this.gameObjects[i]].TestValue;
+            this.charaSum += this.dualDictionary[this.gameObjects[i]].TestValue;
 
             // 一致しない場合
-            if ( standardDictionary[gameObjects[i]].TestValue != customDictionary[gameObjects[i]].TestValue
-                || dualDictionary[gameObjects[i]].TestValue != customDictionary[gameObjects[i]].TestValue )
+            if ( this.standardDictionary[this.gameObjects[i]].TestValue != this.customDictionary[this.gameObjects[i]].TestValue
+                || this.dualDictionary[this.gameObjects[i]].TestValue != this.customDictionary[this.gameObjects[i]].TestValue )
             {
                 unMatchCount++;
-                matchingTest[i + 1] = $"結果：不一致 (Dictionary：{standardDictionary[gameObjects[i]].TestValue}) CharaDataDic：({customDictionary[gameObjects[i]].TestValue}) CharacterDataDic：({dualDictionary[gameObjects[i]].TestValue})";
+                matchingTest[i + 1] = $"結果：不一致 (Dictionary：{this.standardDictionary[this.gameObjects[i]].TestValue}) CharaDataDic：({this.customDictionary[this.gameObjects[i]].TestValue}) CharacterDataDic：({this.dualDictionary[this.gameObjects[i]].TestValue})";
             }
             else
             {
-                matchingTest[i + 1] = $"結果：一致 ({standardDictionary[gameObjects[i]].TestValue})";
+                matchingTest[i + 1] = $"結果：一致 ({this.standardDictionary[this.gameObjects[i]].TestValue})";
             }
 
         }
@@ -125,25 +122,24 @@ public class CharacterDataDictionaryPerformanceTest
 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiita記事\\自作コレクション検証\\整合性テスト2結果.txt");
 
         // ファイルに新しい行を追加する
-        using ( StreamWriter sw = new StreamWriter(absolutePath, true) )
+        using ( StreamWriter sw = new(absolutePath, true) )
         {
             // 結果サマリーを出力
             for ( int i = 0; i < matchingTest.Length; i++ )
             {
                 sw.WriteLine(matchingTest[i]);
             }
+
             sw.WriteLine(string.Empty);
         }
 
         // 辞書のクリーンアップ
-        standardDictionary.Clear();
-        customDictionary.Dispose();
-        dualDictionary.Dispose();
-
-
+        this.standardDictionary.Clear();
+        this.customDictionary.Dispose();
+        this.dualDictionary.Dispose();
 
         // 最後に出力することで過剰最適化を防ぐ
-        UnityEngine.Debug.Log($"テスト結果確認用データ合計: {dataSum}");
+        UnityEngine.Debug.Log($"テスト結果確認用データ合計: {this.dataSum}");
     }
 
     //
@@ -155,14 +151,14 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     {
         Measure.Method(() =>
         {
-            standardDictionary.Clear();
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            this.standardDictionary.Clear();
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
-                standardDictionary.Add(gameObjects[i], components1[i]);
+                this.standardDictionary.Add(this.gameObjects[i], this.components1[i]);
             }
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
@@ -171,14 +167,14 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     {
         Measure.Method(() =>
         {
-            customDictionary.Clear();
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            this.customDictionary.Clear();
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
-                customDictionary.Add(gameObjects[i], components1[i]);
+                _ = this.customDictionary.Add(this.gameObjects[i], this.components1[i]);
             }
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
@@ -187,14 +183,14 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     {
         Measure.Method(() =>
         {
-            dualDictionary.Clear();
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            this.dualDictionary.Clear();
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
-                dualDictionary.Add(gameObjects[i], components1[i], components2[i]);
+                _ = this.dualDictionary.Add(this.gameObjects[i], this.components1[i], this.components2[i]);
             }
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
@@ -206,21 +202,22 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void Test_04_SequentialAccess_StandardDictionary()
     {
         // テスト前の準備
-        PrepareSequentialTest();
+        this.PrepareSequentialTest();
 
         Measure.Method(() =>
         {
             int localSum = 0;
             // ゲームオブジェクトから値を取得して、localSumに加算していく。
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
-                DicTestData comp = standardDictionary[gameObjects[i]];
+                DicTestData comp = this.standardDictionary[this.gameObjects[i]];
                 localSum += comp.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
@@ -228,20 +225,21 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void Test_05_SequentialAccess_CustomDictionary()
     {
         // テスト前の準備
-        PrepareSequentialTest();
+        this.PrepareSequentialTest();
 
         Measure.Method(() =>
         {
             int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
-                DicTestData comp = customDictionary[gameObjects[i]];
+                DicTestData comp = this.customDictionary[this.gameObjects[i]];
                 localSum += comp.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
@@ -249,21 +247,22 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void Test_06_SequentialAccess_CharacterDataDictionary()
     {
         // テスト前の準備
-        PrepareSequentialTest();
+        this.PrepareSequentialTest();
 
         Measure.Method(() =>
         {
             int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
                 // T1型データのみアクセス
-                DicTestData comp = dualDictionary[gameObjects[i]];
+                DicTestData comp = this.dualDictionary[this.gameObjects[i]];
                 localSum += comp.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
@@ -271,20 +270,21 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void Test_07_SequentialAccess_CharacterDataDictionary_T2()
     {
         // テスト前の準備
-        PrepareSequentialTest();
+        this.PrepareSequentialTest();
 
         Measure.Method(() =>
         {
             int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
-                dualDictionary.TryGetValue(gameObjects[i], out MyDicTestComponent comp2, out int index);
+                _ = this.dualDictionary.TryGetValue(this.gameObjects[i], out MyDicTestComponent comp2, out int index);
                 localSum += comp2.data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
@@ -295,119 +295,122 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     [Test, Performance]
     public void Test_10_RandomAccess_StandardDictionary()
     {
-        List<int> randomIndices = PrepareRandomTest();
+        List<int> randomIndices = this.PrepareRandomTest();
 
         // 事前準備：辞書に要素を追加
-        standardDictionary.Clear();
+        this.standardDictionary.Clear();
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
-            standardDictionary.Add(gameObjects[i], components1[i]);
+            this.standardDictionary.Add(this.gameObjects[i], this.components1[i]);
         }
 
         Measure.Method(() =>
         {
             int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
                 int idx = randomIndices[i];
-                DicTestData comp = standardDictionary[gameObjects[idx]];
+                DicTestData comp = this.standardDictionary[this.gameObjects[idx]];
                 localSum += comp.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
     [Test, Performance]
     public void Test_11_RandomAccess_CustomDictionary()
     {
-        List<int> randomIndices = PrepareRandomTest();
+        List<int> randomIndices = this.PrepareRandomTest();
 
         // 事前準備：辞書に要素を追加
-        customDictionary.Clear();
+        this.customDictionary.Clear();
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
-            customDictionary.Add(gameObjects[i], components1[i]);
+            _ = this.customDictionary.Add(this.gameObjects[i], this.components1[i]);
         }
 
         Measure.Method(() =>
         {
             int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
                 int idx = randomIndices[i];
-                DicTestData comp = customDictionary[gameObjects[idx]];
+                DicTestData comp = this.customDictionary[this.gameObjects[idx]];
                 localSum += comp.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
     [Test, Performance]
     public void Test_12_RandomAccess_CharacterDataDictionary()
     {
-        List<int> randomIndices = PrepareRandomTest();
+        List<int> randomIndices = this.PrepareRandomTest();
 
         // 事前準備：辞書に要素を追加
-        dualDictionary.Clear();
+        this.dualDictionary.Clear();
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
-            dualDictionary.Add(gameObjects[i], components1[i], components2[i]);
+            _ = this.dualDictionary.Add(this.gameObjects[i], this.components1[i], this.components2[i]);
         }
 
         Measure.Method(() =>
         {
             int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
                 int idx = randomIndices[i];
-                dualDictionary.TryGetValue(gameObjects[idx], out DicTestData comp1, out int index);
+                _ = this.dualDictionary.TryGetValue(this.gameObjects[idx], out DicTestData comp1, out int index);
                 localSum += comp1.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
 
     [Test, Performance]
     public void Test_13_RandomAccess_CharacterDataDictionary_T2()
     {
-        List<int> randomIndices = PrepareRandomTest();
+        List<int> randomIndices = this.PrepareRandomTest();
 
         // 事前準備：辞書に要素を追加
-        dualDictionary.Clear();
+        this.dualDictionary.Clear();
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
-            dualDictionary.Add(gameObjects[i], components1[i], components2[i]);
+            _ = this.dualDictionary.Add(this.gameObjects[i], this.components1[i], this.components2[i]);
         }
 
         Measure.Method(() =>
         {
             int localSum = 0;
-            for ( int i = 0; i < gameObjects.Length; i++ )
+            for ( int i = 0; i < this.gameObjects.Length; i++ )
             {
                 int idx = randomIndices[i];
-                dualDictionary.TryGetValue(gameObjects[idx], out MyDicTestComponent comp2, out int index);
+                _ = this.dualDictionary.TryGetValue(this.gameObjects[idx], out MyDicTestComponent comp2, out int index);
                 localSum += comp2.data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .Run();
     }
-
 
     //
     // ヘルパーメソッド
@@ -416,29 +419,29 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     private void PrepareSequentialTest()
     {
         // 事前準備：辞書に要素を追加
-        standardDictionary.Clear();
-        customDictionary.Clear();
-        dualDictionary.Clear();
+        this.standardDictionary.Clear();
+        this.customDictionary.Clear();
+        this.dualDictionary.Clear();
 
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
-            standardDictionary.Add(gameObjects[i], components1[i]);
-            customDictionary.Add(gameObjects[i], components1[i]);
-            dualDictionary.Add(gameObjects[i], components1[i], components2[i]);
+            this.standardDictionary.Add(this.gameObjects[i], this.components1[i]);
+            _ = this.customDictionary.Add(this.gameObjects[i], this.components1[i]);
+            _ = this.dualDictionary.Add(this.gameObjects[i], this.components1[i], this.components2[i]);
         }
     }
 
     private List<int> PrepareRandomTest()
     {
         // シャッフルしたインデックスを作成
-        List<int> randomIndices = new List<int>(objectCount);
-        for ( int i = 0; i < gameObjects.Length; i++ )
+        List<int> randomIndices = new(this.objectCount);
+        for ( int i = 0; i < this.gameObjects.Length; i++ )
         {
             randomIndices.Add(i);
         }
 
         // Fisher-Yates シャッフル
-        System.Random random = new System.Random(42); // 再現性のために固定シード
+        System.Random random = new(42); // 再現性のために固定シード
         for ( int i = randomIndices.Count - 1; i > 0; i-- )
         {
             int j = random.Next(0, i + 1);

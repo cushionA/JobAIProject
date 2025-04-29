@@ -1,16 +1,14 @@
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using NUnit.Framework;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Unity.PerformanceTesting;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.TestTools;
-using Unity.Collections;
-using Unity.PerformanceTesting;
-using System.Collections;
-using System.IO;
 
 /// <summary>
 /// CharaDataDicと標準Dictionaryの正確性とパフォーマンスを徹底的に比較するテスト
@@ -38,7 +36,6 @@ public class CharaDataDicFinalTest
     private Dictionary<GameObject, DicTestData> standardDictionary;
     private CharaDataDic<DicTestData> customDictionary;
 
-
     // 計測結果の一時保存用
     private string[] matchingTest;
     private int unMatchCount;
@@ -59,15 +56,15 @@ public class CharaDataDicFinalTest
     public IEnumerator SetUp()
     {
         // テストオブジェクトの生成
-        gameObjects = new GameObject[objectCount];
-        testData = new DicTestData[objectCount];
-        gameObjectHashes = new int[objectCount];
-        selectedForDeletion = new HashSet<int>();
+        this.gameObjects = new GameObject[this.objectCount];
+        this.testData = new DicTestData[this.objectCount];
+        this.gameObjectHashes = new int[this.objectCount];
+        this.selectedForDeletion = new HashSet<int>();
 
         // 複数のオブジェクトを並列でインスタンス化
-        var tasks = new List<AsyncOperationHandle<GameObject>>(objectCount);
+        var tasks = new List<AsyncOperationHandle<GameObject>>(this.objectCount);
 
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
             // Addressablesを使用してインスタンス化
             var task = Addressables.InstantiateAsync("Assets/Prefab/TestPrefab/MyDicTest.prefab");
@@ -81,87 +78,87 @@ public class CharaDataDicFinalTest
         }
 
         // 生成されたオブジェクトと必要なコンポーネントを取得
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            gameObjects[i] = tasks[i].Result;
-            gameObjects[i].name = $"TestObject_{i}";
+            this.gameObjects[i] = tasks[i].Result;
+            this.gameObjects[i].name = $"TestObject_{i}";
 
-            var component = gameObjects[i].GetComponent<MyDicTestComponent>();
+            var component = this.gameObjects[i].GetComponent<MyDicTestComponent>();
             component.IDSet();
-            testData[i] = component.data;
+            this.testData[i] = component.data;
 
             // ハッシュコードを保存
-            gameObjectHashes[i] = gameObjects[i].GetHashCode();
+            this.gameObjectHashes[i] = this.gameObjects[i].GetHashCode();
 
             // GetComponentが非nullであることを確認
-            Assert.IsNotNull(testData[i], $"オブジェクト {i} の DicTestData が見つかりません");
+            Assert.IsNotNull(this.testData[i], $"オブジェクト {i} の DicTestData が見つかりません");
         }
 
         // 削除用のオブジェクトをランダムに選択
-        int deleteCount = objectCount * deleteRatio / 100;
-        selectedForDeletion.Clear();
-        System.Random rnd = new System.Random(42); // 再現性のために固定シード
-        while ( selectedForDeletion.Count < deleteCount )
+        int deleteCount = this.objectCount * this.deleteRatio / 100;
+        this.selectedForDeletion.Clear();
+        System.Random rnd = new(42); // 再現性のために固定シード
+        while ( this.selectedForDeletion.Count < deleteCount )
         {
-            selectedForDeletion.Add(rnd.Next(0, objectCount));
+            _ = this.selectedForDeletion.Add(rnd.Next(0, this.objectCount));
         }
 
         // 辞書の初期化
-        standardDictionary = new Dictionary<GameObject, DicTestData>(objectCount);
-        customDictionary = new CharaDataDic<DicTestData>(objectCount);
+        this.standardDictionary = new Dictionary<GameObject, DicTestData>(this.objectCount);
+        this.customDictionary = new CharaDataDic<DicTestData>(this.objectCount);
 
         // 初期値をクリア
-        dataSum = 0;
-        errorCount = 0;
-        stdAddTime = 0;
-        customAddTime = 0;
-        stdSequentialTime = 0;
-        customSequentialTime = 0;
-        stdRandomTime = 0;
-        customRandomTime = 0;
-        stdDeleteTime = 0;
-        customDeleteTime = 0;
+        this.dataSum = 0;
+        this.errorCount = 0;
+        this.stdAddTime = 0;
+        this.customAddTime = 0;
+        this.stdSequentialTime = 0;
+        this.customSequentialTime = 0;
+        this.stdRandomTime = 0;
+        this.customRandomTime = 0;
+        this.stdDeleteTime = 0;
+        this.customDeleteTime = 0;
     }
 
     [TearDown]
     public void TearDown()
     {
         // 生成したオブジェクトの破棄
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            if ( gameObjects[i] != null )
+            if ( this.gameObjects[i] != null )
             {
-                Addressables.ReleaseInstance(gameObjects[i]);
+                _ = Addressables.ReleaseInstance(this.gameObjects[i]);
             }
         }
 
         // 辞書のクリーンアップ
-        standardDictionary.Clear();
-        customDictionary.Dispose();
+        this.standardDictionary.Clear();
+        this.customDictionary.Dispose();
 
         // 結果サマリーを出力
-        UnityEngine.Debug.Log($"テスト結果確認用データ合計: {dataSum}");
-        UnityEngine.Debug.Log($"エラー数: {errorCount}");
+        UnityEngine.Debug.Log($"テスト結果確認用データ合計: {this.dataSum}");
+        UnityEngine.Debug.Log($"エラー数: {this.errorCount}");
         UnityEngine.Debug.Log("=== パフォーマンス比較 ===");
-        UnityEngine.Debug.Log($"要素追加: 標準Dictionary {stdAddTime:F3}ms vs CharaDataDic {customAddTime:F3}ms (比率: {customAddTime / stdAddTime:P})");
-        UnityEngine.Debug.Log($"順次アクセス: 標準Dictionary {stdSequentialTime:F3}ms vs CharaDataDic {customSequentialTime:F3}ms (比率: {customSequentialTime / stdSequentialTime:P})");
-        UnityEngine.Debug.Log($"ランダムアクセス: 標準Dictionary {stdRandomTime:F3}ms vs CharaDataDic {customRandomTime:F3}ms (比率: {customRandomTime / stdRandomTime:P})");
-        UnityEngine.Debug.Log($"要素削除: 標準Dictionary {stdDeleteTime:F3}ms vs CharaDataDic {customDeleteTime:F3}ms (比率: {customDeleteTime / stdDeleteTime:P})");
+        UnityEngine.Debug.Log($"要素追加: 標準Dictionary {this.stdAddTime:F3}ms vs CharaDataDic {this.customAddTime:F3}ms (比率: {this.customAddTime / this.stdAddTime:P})");
+        UnityEngine.Debug.Log($"順次アクセス: 標準Dictionary {this.stdSequentialTime:F3}ms vs CharaDataDic {this.customSequentialTime:F3}ms (比率: {this.customSequentialTime / this.stdSequentialTime:P})");
+        UnityEngine.Debug.Log($"ランダムアクセス: 標準Dictionary {this.stdRandomTime:F3}ms vs CharaDataDic {this.customRandomTime:F3}ms (比率: {this.customRandomTime / this.stdRandomTime:P})");
+        UnityEngine.Debug.Log($"要素削除: 標準Dictionary {this.stdDeleteTime:F3}ms vs CharaDataDic {this.customDeleteTime:F3}ms (比率: {this.customDeleteTime / this.stdDeleteTime:P})");
 
         string absolutePath = Path.Combine(
 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiita記事\\自作コレクション検証\\性能テスト結果.txt");
 
         // ファイルに新しい行を追加する
-        using ( StreamWriter sw = new StreamWriter(absolutePath, true) )
+        using ( StreamWriter sw = new(absolutePath, true) )
         {
             // 結果サマリーを出力
-            sw.WriteLine($"テスト結果確認用データ合計: {dataSum}");
-            sw.WriteLine($"エラー数: {errorCount}");
+            sw.WriteLine($"テスト結果確認用データ合計: {this.dataSum}");
+            sw.WriteLine($"エラー数: {this.errorCount}");
             sw.WriteLine("=== パフォーマンス比較 ===");
-            sw.WriteLine($"要素追加: 標準Dictionary {stdAddTime:F3}ms vs CharaDataDic {customAddTime:F3}ms (比率: {customAddTime / stdAddTime:P})");
-            sw.WriteLine($"順次アクセス: 標準Dictionary {stdSequentialTime:F3}ms vs CharaDataDic {customSequentialTime:F3}ms (比率: {customSequentialTime / stdSequentialTime:P})");
-            sw.WriteLine($"ランダムアクセス: 標準Dictionary {stdRandomTime:F3}ms vs CharaDataDic {customRandomTime:F3}ms (比率: {customRandomTime / stdRandomTime:P})");
-            sw.WriteLine($"要素削除: 標準Dictionary {stdDeleteTime:F3}ms vs CharaDataDic {customDeleteTime:F3}ms (比率: {customDeleteTime / stdDeleteTime:P})");
+            sw.WriteLine($"要素追加: 標準Dictionary {this.stdAddTime:F3}ms vs CharaDataDic {this.customAddTime:F3}ms (比率: {this.customAddTime / this.stdAddTime:P})");
+            sw.WriteLine($"順次アクセス: 標準Dictionary {this.stdSequentialTime:F3}ms vs CharaDataDic {this.customSequentialTime:F3}ms (比率: {this.customSequentialTime / this.stdSequentialTime:P})");
+            sw.WriteLine($"ランダムアクセス: 標準Dictionary {this.stdRandomTime:F3}ms vs CharaDataDic {this.customRandomTime:F3}ms (比率: {this.customRandomTime / this.stdRandomTime:P})");
+            sw.WriteLine($"要素削除: 標準Dictionary {this.stdDeleteTime:F3}ms vs CharaDataDic {this.customDeleteTime:F3}ms (比率: {this.customDeleteTime / this.stdDeleteTime:P})");
             sw.WriteLine(string.Empty);
         }
 
@@ -169,13 +166,14 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiita記事\\自作コレクション検証\\整合性テスト結果.txt");
 
         // ファイルに新しい行を追加する
-        using ( StreamWriter sw = new StreamWriter(absolutePath, true) )
+        using ( StreamWriter sw = new(absolutePath, true) )
         {
             // 結果サマリーを出力
-            for ( int i = 0; i < matchingTest.Length; i++ )
+            for ( int i = 0; i < this.matchingTest.Length; i++ )
             {
-                sw.WriteLine(matchingTest[i]);
+                sw.WriteLine(this.matchingTest[i]);
             }
+
             sw.WriteLine(string.Empty);
         }
 
@@ -188,24 +186,24 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void CorrectnessTest_AddAndAccess()
     {
         // 両方の辞書を初期化
-        standardDictionary.Clear();
-        customDictionary.Clear();
+        this.standardDictionary.Clear();
+        this.customDictionary.Clear();
 
         // 要素を追加
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            standardDictionary.Add(gameObjects[i], testData[i]);
-            customDictionary.Add(gameObjects[i], testData[i]);
+            this.standardDictionary.Add(this.gameObjects[i], this.testData[i]);
+            _ = this.customDictionary.Add(this.gameObjects[i], this.testData[i]);
         }
 
         // 要素照会テスト用の配列
-        matchingTest = new string[gameObjects.Length + 1];
+        this.matchingTest = new string[this.gameObjects.Length + 1];
 
         // すべての要素に正しくアクセスできるか確認
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            DicTestData stdData = standardDictionary[gameObjects[i]];
-            DicTestData customData = customDictionary[gameObjects[i]];
+            DicTestData stdData = this.standardDictionary[this.gameObjects[i]];
+            DicTestData customData = this.customDictionary[this.gameObjects[i]];
 
             // 同じデータが取得できることを確認
             Assert.AreEqual(stdData.TestValue, customData.TestValue,
@@ -214,23 +212,24 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
             // 一致しない場合
             if ( stdData.TestValue != customData.TestValue )
             {
-                unMatchCount++;
-                matchingTest[i + 1] = $"結果：不一致 (Dictionary：{stdData.TestValue}) CharaDataDic：({customData.TestValue})";
+                this.unMatchCount++;
+                this.matchingTest[i + 1] = $"結果：不一致 (Dictionary：{stdData.TestValue}) CharaDataDic：({customData.TestValue})";
             }
             else
             {
-                matchingTest[i + 1] = $"結果：一致 ({stdData.TestValue})";
+                this.matchingTest[i + 1] = $"結果：一致 ({stdData.TestValue})";
             }
 
         }
 
-        matchingTest[0] = $"不一致:{unMatchCount} 件";
+        this.matchingTest[0] = $"不一致:{this.unMatchCount} 件";
 
         // ハッシュコードによるアクセスも確認
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            int hash = gameObjectHashes[i];
-            bool result = customDictionary.TryGetValueByHash(hash, out DicTestData data, out _);
+            int hash = this.gameObjectHashes[i];
+
+            bool result = this.customDictionary.TryGetValueByHash(hash, out _, out _);
 
             Assert.IsTrue(result, $"Index {i}: ハッシュコード {hash} での検索に失敗しました");
         }
@@ -243,42 +242,42 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void CorrectnessTest_Remove()
     {
         // 両方の辞書を初期化して要素を追加
-        standardDictionary.Clear();
-        customDictionary.Clear();
+        this.standardDictionary.Clear();
+        this.customDictionary.Clear();
 
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            standardDictionary.Add(gameObjects[i], testData[i]);
-            customDictionary.Add(gameObjects[i], testData[i]);
+            this.standardDictionary.Add(this.gameObjects[i], this.testData[i]);
+            _ = this.customDictionary.Add(this.gameObjects[i], this.testData[i]);
         }
 
         // 選択されたオブジェクトを削除
-        foreach ( int idx in selectedForDeletion )
+        foreach ( int idx in this.selectedForDeletion )
         {
-            bool stdResult = standardDictionary.Remove(gameObjects[idx]);
-            bool customResult = customDictionary.Remove(gameObjects[idx]);
+            bool stdResult = this.standardDictionary.Remove(this.gameObjects[idx]);
+            bool customResult = this.customDictionary.Remove(this.gameObjects[idx]);
 
             Assert.IsTrue(stdResult, $"標準Dictionaryから要素 {idx} の削除に失敗しました");
             Assert.IsTrue(customResult, $"CharaDataDicから要素 {idx} の削除に失敗しました");
         }
 
         // 削除されたか確認
-        foreach ( int idx in selectedForDeletion )
+        foreach ( int idx in this.selectedForDeletion )
         {
-            bool stdContains = standardDictionary.ContainsKey(gameObjects[idx]);
-            bool customContains = customDictionary.TryGetValue(gameObjects[idx], out _, out _);
+            bool stdContains = this.standardDictionary.ContainsKey(this.gameObjects[idx]);
+            bool customContains = this.customDictionary.TryGetValue(this.gameObjects[idx], out _, out _);
 
             Assert.IsFalse(stdContains, $"標準Dictionaryに削除したはずの要素 {idx} が含まれています");
             Assert.IsFalse(customContains, $"CharaDataDicに削除したはずの要素 {idx} が含まれています");
         }
 
         // 他の要素はまだ存在するか確認
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            if ( !selectedForDeletion.Contains(i) )
+            if ( !this.selectedForDeletion.Contains(i) )
             {
-                bool stdContains = standardDictionary.ContainsKey(gameObjects[i]);
-                bool customContains = customDictionary.TryGetValue(gameObjects[i], out _, out _);
+                bool stdContains = this.standardDictionary.ContainsKey(this.gameObjects[i]);
+                bool customContains = this.customDictionary.TryGetValue(this.gameObjects[i], out _, out _);
 
                 Assert.IsTrue(stdContains, $"標準Dictionaryから誤って要素 {i} が削除されています");
                 Assert.IsTrue(customContains, $"CharaDataDicから誤って要素 {i} が削除されています");
@@ -296,44 +295,44 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
         for ( int run = 0; run < 5; run++ )
         {
             // 両方の辞書を初期化
-            standardDictionary.Clear();
-            customDictionary.Clear();
+            this.standardDictionary.Clear();
+            this.customDictionary.Clear();
 
             // 全要素を追加
-            for ( int i = 0; i < objectCount; i++ )
+            for ( int i = 0; i < this.objectCount; i++ )
             {
-                standardDictionary.Add(gameObjects[i], testData[i]);
-                customDictionary.Add(gameObjects[i], testData[i]);
+                this.standardDictionary.Add(this.gameObjects[i], this.testData[i]);
+                _ = this.customDictionary.Add(this.gameObjects[i], this.testData[i]);
             }
 
             // 半分の要素を削除
-            for ( int i = 0; i < objectCount; i += 2 )
+            for ( int i = 0; i < this.objectCount; i += 2 )
             {
-                standardDictionary.Remove(gameObjects[i]);
-                customDictionary.Remove(gameObjects[i]);
+                _ = this.standardDictionary.Remove(this.gameObjects[i]);
+                _ = this.customDictionary.Remove(this.gameObjects[i]);
             }
 
             // 削除した要素を再追加
-            for ( int i = 0; i < objectCount; i += 2 )
+            for ( int i = 0; i < this.objectCount; i += 2 )
             {
-                standardDictionary[gameObjects[i]] = testData[i];
-                customDictionary.Add(gameObjects[i], testData[i]);
+                this.standardDictionary[this.gameObjects[i]] = this.testData[i];
+                _ = this.customDictionary.Add(this.gameObjects[i], this.testData[i]);
             }
 
             // 全要素にアクセスして一致を確認
-            for ( int i = 0; i < objectCount; i++ )
+            for ( int i = 0; i < this.objectCount; i++ )
             {
-                DicTestData stdData = standardDictionary[gameObjects[i]];
-                DicTestData customData = customDictionary[gameObjects[i]];
+                DicTestData stdData = this.standardDictionary[this.gameObjects[i]];
+                DicTestData customData = this.customDictionary[this.gameObjects[i]];
 
                 if ( stdData.TestValue != customData.TestValue )
                 {
-                    errorCount++;
+                    this.errorCount++;
                 }
             }
         }
 
-        Assert.AreEqual(0, errorCount, "繰り返しの追加削除テスト中にエラーが発生しました");
+        Assert.AreEqual(0, this.errorCount, "繰り返しの追加削除テスト中にエラーが発生しました");
     }
 
     /// <summary>
@@ -345,37 +344,37 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
         // 標準Dictionary追加テスト
         Measure.Method(() =>
         {
-            standardDictionary.Clear();
-            for ( int i = 0; i < objectCount; i++ )
+            this.standardDictionary.Clear();
+            for ( int i = 0; i < this.objectCount; i++ )
             {
-                standardDictionary.Add(gameObjects[i], testData[i]);
+                this.standardDictionary.Add(this.gameObjects[i], this.testData[i]);
             }
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("StandardDictionary_Add", SampleUnit.Millisecond))
         .Run();
 
         // 標準Dictionaryの結果を保存
-        stdAddTime = PerformanceTest.Active.SampleGroups
+        this.stdAddTime = PerformanceTest.Active.SampleGroups
             .FirstOrDefault(sg => sg.Name == "StandardDictionary_Add")?.Median ?? 0;
 
         // CharaDataDic追加テスト
         Measure.Method(() =>
         {
-            customDictionary.Clear();
-            for ( int i = 0; i < objectCount; i++ )
+            this.customDictionary.Clear();
+            for ( int i = 0; i < this.objectCount; i++ )
             {
-                customDictionary.Add(gameObjects[i], testData[i]);
+                _ = this.customDictionary.Add(this.gameObjects[i], this.testData[i]);
             }
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("CharaDataDic_Add", SampleUnit.Millisecond))
         .Run();
 
         // CharaDataDicの結果を保存
-        customAddTime = PerformanceTest.Active.SampleGroups
+        this.customAddTime = PerformanceTest.Active.SampleGroups
             .FirstOrDefault(sg => sg.Name == "CharaDataDic_Add")?.Median ?? 0;
     }
 
@@ -386,48 +385,50 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void PerformanceTest_SequentialAccess()
     {
         // 事前準備：辞書に要素を追加
-        PrepareForAccessTest();
+        this.PrepareForAccessTest();
 
         // 標準Dictionary連続アクセステスト
         Measure.Method(() =>
         {
             long localSum = 0;
-            for ( int run = 0; run < accessTestRuns; run++ )
+            for ( int run = 0; run < this.accessTestRuns; run++ )
             {
-                int idx = run % objectCount;
-                DicTestData data = standardDictionary[gameObjects[idx]];
+                int idx = run % this.objectCount;
+                DicTestData data = this.standardDictionary[this.gameObjects[idx]];
                 localSum += data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("StandardDictionary_Sequential", SampleUnit.Millisecond))
         .Run();
 
         // 標準Dictionaryの結果を保存
-        stdSequentialTime = PerformanceTest.Active.SampleGroups
+        this.stdSequentialTime = PerformanceTest.Active.SampleGroups
             .FirstOrDefault(sg => sg.Name == "StandardDictionary_Sequential")?.Median ?? 0;
 
         // CharaDataDic連続アクセステスト
         Measure.Method(() =>
         {
             long localSum = 0;
-            for ( int run = 0; run < accessTestRuns; run++ )
+            for ( int run = 0; run < this.accessTestRuns; run++ )
             {
-                int idx = run % objectCount;
-                DicTestData data = customDictionary[gameObjects[idx]];
+                int idx = run % this.objectCount;
+                DicTestData data = this.customDictionary[this.gameObjects[idx]];
                 localSum += data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("CharaDataDic_Sequential", SampleUnit.Millisecond))
         .Run();
 
         // CharaDataDicの結果を保存
-        customSequentialTime = PerformanceTest.Active.SampleGroups
+        this.customSequentialTime = PerformanceTest.Active.SampleGroups
             .FirstOrDefault(sg => sg.Name == "CharaDataDic_Sequential")?.Median ?? 0;
     }
 
@@ -438,56 +439,58 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void PerformanceTest_RandomAccess()
     {
         // 事前準備：辞書に要素を追加
-        PrepareForAccessTest();
+        this.PrepareForAccessTest();
 
         // ランダムインデックスを生成
-        System.Random rnd = new System.Random(42);
-        int[] randomIndices = new int[accessTestRuns];
-        for ( int i = 0; i < accessTestRuns; i++ )
+        System.Random rnd = new(42);
+        int[] randomIndices = new int[this.accessTestRuns];
+        for ( int i = 0; i < this.accessTestRuns; i++ )
         {
-            randomIndices[i] = rnd.Next(0, objectCount);
+            randomIndices[i] = rnd.Next(0, this.objectCount);
         }
 
         // 標準Dictionaryランダムアクセステスト
         Measure.Method(() =>
         {
             long localSum = 0;
-            for ( int run = 0; run < accessTestRuns; run++ )
+            for ( int run = 0; run < this.accessTestRuns; run++ )
             {
                 int idx = randomIndices[run];
-                DicTestData data = standardDictionary[gameObjects[idx]];
+                DicTestData data = this.standardDictionary[this.gameObjects[idx]];
                 localSum += data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("StandardDictionary_Random", SampleUnit.Millisecond))
         .Run();
 
         // 標準Dictionaryの結果を保存
-        stdRandomTime = PerformanceTest.Active.SampleGroups
+        this.stdRandomTime = PerformanceTest.Active.SampleGroups
             .FirstOrDefault(sg => sg.Name == "StandardDictionary_Random")?.Median ?? 0;
 
         // CharaDataDicランダムアクセステスト
         Measure.Method(() =>
         {
             long localSum = 0;
-            for ( int run = 0; run < accessTestRuns; run++ )
+            for ( int run = 0; run < this.accessTestRuns; run++ )
             {
                 int idx = randomIndices[run];
-                DicTestData data = customDictionary[gameObjects[idx]];
+                DicTestData data = this.customDictionary[this.gameObjects[idx]];
                 localSum += data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("CharaDataDic_Random", SampleUnit.Millisecond))
         .Run();
 
         // CharaDataDicの結果を保存
-        customRandomTime = PerformanceTest.Active.SampleGroups
+        this.customRandomTime = PerformanceTest.Active.SampleGroups
             .FirstOrDefault(sg => sg.Name == "CharaDataDic_Random")?.Median ?? 0;
     }
 
@@ -498,39 +501,39 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void PerformanceTest_Remove()
     {
         // 標準Dictionary削除テスト
-        PrepareForAccessTest();
+        this.PrepareForAccessTest();
         Measure.Method(() =>
         {
-            foreach ( int idx in selectedForDeletion )
+            foreach ( int idx in this.selectedForDeletion )
             {
-                standardDictionary.Remove(gameObjects[idx]);
+                _ = this.standardDictionary.Remove(this.gameObjects[idx]);
             }
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("StandardDictionary_Remove", SampleUnit.Millisecond))
         .Run();
 
         // 標準Dictionaryの結果を保存
-        stdDeleteTime = PerformanceTest.Active.SampleGroups
+        this.stdDeleteTime = PerformanceTest.Active.SampleGroups
             .FirstOrDefault(sg => sg.Name == "StandardDictionary_Remove")?.Median ?? 0;
 
         // CharaDataDic削除テスト
-        PrepareForAccessTest();
+        this.PrepareForAccessTest();
         Measure.Method(() =>
         {
-            foreach ( int idx in selectedForDeletion )
+            foreach ( int idx in this.selectedForDeletion )
             {
-                customDictionary.Remove(gameObjects[idx]);
+                _ = this.customDictionary.Remove(this.gameObjects[idx]);
             }
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("CharaDataDic_Remove", SampleUnit.Millisecond))
         .Run();
 
         // CharaDataDicの結果を保存
-        customDeleteTime = PerformanceTest.Active.SampleGroups
+        this.customDeleteTime = PerformanceTest.Active.SampleGroups
             .FirstOrDefault(sg => sg.Name == "CharaDataDic_Remove")?.Median ?? 0;
     }
 
@@ -541,29 +544,30 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void PerformanceTest_HashCodeAccess()
     {
         // 事前準備：辞書に要素を追加
-        PrepareForAccessTest();
+        this.PrepareForAccessTest();
 
         // ゲームオブジェクトのハッシュコードを収集
-        int[] hashes = new int[objectCount];
-        for ( int i = 0; i < objectCount; i++ )
+        int[] hashes = new int[this.objectCount];
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            hashes[i] = gameObjects[i].GetHashCode();
+            hashes[i] = this.gameObjects[i].GetHashCode();
         }
 
         // 通常の方法でアクセス（参照基準）
         Measure.Method(() =>
         {
             long localSum = 0;
-            for ( int i = 0; i < accessTestRuns; i++ )
+            for ( int i = 0; i < this.accessTestRuns; i++ )
             {
-                int idx = i % objectCount;
-                DicTestData data = customDictionary[gameObjects[idx]];
+                int idx = i % this.objectCount;
+                DicTestData data = this.customDictionary[this.gameObjects[idx]];
                 localSum += data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("GameObjectAccess", SampleUnit.Millisecond))
         .Run();
 
@@ -571,17 +575,18 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
         Measure.Method(() =>
         {
             long localSum = 0;
-            for ( int i = 0; i < accessTestRuns; i++ )
+            for ( int i = 0; i < this.accessTestRuns; i++ )
             {
-                int idx = i % objectCount;
+                int idx = i % this.objectCount;
                 int hash = hashes[idx];
-                customDictionary.TryGetValueByHash(hash, out DicTestData data, out _);
+                _ = this.customDictionary.TryGetValueByHash(hash, out DicTestData data, out _);
                 localSum += data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("HashCodeAccess", SampleUnit.Millisecond))
         .Run();
     }
@@ -593,13 +598,13 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void PerformanceTest_DirectIndexAccess()
     {
         // 事前準備：辞書に要素を追加
-        PrepareForAccessTest();
+        this.PrepareForAccessTest();
 
         // インデックスを収集
-        List<int> indices = new List<int>(objectCount);
-        for ( int i = 0; i < objectCount; i++ )
+        List<int> indices = new(this.objectCount);
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            int index = customDictionary.Add(gameObjects[i], testData[i]);
+            int index = this.customDictionary.Add(this.gameObjects[i], this.testData[i]);
             indices.Add(index);
         }
 
@@ -607,16 +612,17 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
         Measure.Method(() =>
         {
             long localSum = 0;
-            for ( int i = 0; i < accessTestRuns; i++ )
+            for ( int i = 0; i < this.accessTestRuns; i++ )
             {
-                int idx = i % objectCount;
-                DicTestData data = customDictionary[gameObjects[idx]];
+                int idx = i % this.objectCount;
+                DicTestData data = this.customDictionary[this.gameObjects[idx]];
                 localSum += data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("NormalAccess", SampleUnit.Millisecond))
         .Run();
 
@@ -624,17 +630,18 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
         Measure.Method(() =>
         {
             long localSum = 0;
-            for ( int i = 0; i < accessTestRuns; i++ )
+            for ( int i = 0; i < this.accessTestRuns; i++ )
             {
-                int idx = i % objectCount;
+                int idx = i % this.objectCount;
                 int valueIndex = indices[idx];
-                ref DicTestData data = ref customDictionary.GetDataByIndex(valueIndex);
+                ref DicTestData data = ref this.customDictionary.GetDataByIndex(valueIndex);
                 localSum += data.TestValue;
             }
-            dataSum += localSum;
+
+            this.dataSum += localSum;
         })
-        .WarmupCount(warmupCount)
-        .MeasurementCount(measurementCount)
+        .WarmupCount(this.warmupCount)
+        .MeasurementCount(this.measurementCount)
         .SampleGroup(new SampleGroup("DirectIndexAccess", SampleUnit.Millisecond))
         .Run();
     }
@@ -646,23 +653,23 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     public void StressTest_MixedOperations()
     {
         // 両方の辞書を初期化
-        standardDictionary.Clear();
-        customDictionary.Clear();
+        this.standardDictionary.Clear();
+        this.customDictionary.Clear();
 
         // 1. 全要素を追加
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            standardDictionary.Add(gameObjects[i], testData[i]);
-            customDictionary.Add(gameObjects[i], testData[i]);
+            this.standardDictionary.Add(this.gameObjects[i], this.testData[i]);
+            _ = this.customDictionary.Add(this.gameObjects[i], this.testData[i]);
         }
 
         // 2. ランダムなアクセス
-        System.Random rnd = new System.Random(123);
-        for ( int i = 0; i < accessTestRuns; i++ )
+        System.Random rnd = new(123);
+        for ( int i = 0; i < this.accessTestRuns; i++ )
         {
-            int idx = rnd.Next(objectCount);
-            bool stdExists = standardDictionary.TryGetValue(gameObjects[idx], out DicTestData stdData);
-            bool customExists = customDictionary.TryGetValue(gameObjects[idx], out DicTestData customData, out int index);
+            int idx = rnd.Next(this.objectCount);
+            bool stdExists = this.standardDictionary.TryGetValue(this.gameObjects[idx], out DicTestData stdData);
+            bool customExists = this.customDictionary.TryGetValue(this.gameObjects[idx], out DicTestData customData, out int index);
 
             // 両方のディクショナリで結果が一致するか確認
             Assert.AreEqual(stdExists, customExists,
@@ -676,43 +683,43 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
         }
 
         // 3. ランダムに要素を削除
-        int deleteCount = objectCount / 3;
-        HashSet<int> deleteIndices = new HashSet<int>();
+        int deleteCount = this.objectCount / 3;
+        HashSet<int> deleteIndices = new();
         while ( deleteIndices.Count < deleteCount )
         {
-            deleteIndices.Add(rnd.Next(objectCount));
+            _ = deleteIndices.Add(rnd.Next(this.objectCount));
         }
 
         foreach ( int idx in deleteIndices )
         {
-            standardDictionary.Remove(gameObjects[idx]);
-            customDictionary.Remove(gameObjects[idx]);
+            _ = this.standardDictionary.Remove(this.gameObjects[idx]);
+            _ = this.customDictionary.Remove(this.gameObjects[idx]);
         }
 
         // 4. ランダムに要素を追加
         int addCount = deleteCount / 2;
         for ( int i = 0; i < addCount; i++ )
         {
-            int idx = rnd.Next(objectCount);
-            if ( standardDictionary.ContainsKey(gameObjects[idx]) )
+            int idx = rnd.Next(this.objectCount);
+            if ( this.standardDictionary.ContainsKey(this.gameObjects[idx]) )
             {
                 continue;
             }
 
-            standardDictionary[gameObjects[idx]] = testData[idx];
-            customDictionary.Add(gameObjects[idx], testData[idx]);
+            this.standardDictionary[this.gameObjects[idx]] = this.testData[idx];
+            _ = this.customDictionary.Add(this.gameObjects[idx], this.testData[idx]);
         }
 
         // 5. 整合性確認 - 標準Dictionaryの各キーがCustomDicにも存在するか
-        foreach ( var kvp in standardDictionary )
+        foreach ( var kvp in this.standardDictionary )
         {
-            bool exists = customDictionary.TryGetValue(kvp.Key, out DicTestData data, out _);
+            bool exists = this.customDictionary.TryGetValue(kvp.Key, out DicTestData data, out _);
             Assert.IsTrue(exists, "CharaDataDicに標準Dictionaryのキーが見つかりません");
             Assert.AreEqual(kvp.Value.TestValue, data.TestValue, "値が一致しません");
         }
 
         // 6. 整合性確認 - CustomDicの各キーが標準Dictionaryにも存在するか
-        customDictionary.ForEach((index, data) =>
+        this.customDictionary.ForEach((index, data) =>
         {
             // このキーを持つゲームオブジェクトを特定する必要があります
             // 実装が難しいのでスキップ（逆方向の確認はできていない）
@@ -722,13 +729,13 @@ Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop\\qiit
     // テスト用のヘルパーメソッド
     private void PrepareForAccessTest()
     {
-        standardDictionary.Clear();
-        customDictionary.Clear();
+        this.standardDictionary.Clear();
+        this.customDictionary.Clear();
 
-        for ( int i = 0; i < objectCount; i++ )
+        for ( int i = 0; i < this.objectCount; i++ )
         {
-            standardDictionary.Add(gameObjects[i], testData[i]);
-            customDictionary.Add(gameObjects[i], testData[i]);
+            this.standardDictionary.Add(this.gameObjects[i], this.testData[i]);
+            _ = this.customDictionary.Add(this.gameObjects[i], this.testData[i]);
         }
     }
 }

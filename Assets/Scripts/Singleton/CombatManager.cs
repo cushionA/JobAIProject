@@ -1,4 +1,3 @@
-using Cysharp.Threading.Tasks;
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -11,7 +10,7 @@ using static JobAITestStatus;
 using static JTestAIBase;
 
 /// <summary>
-/// 次のフレームで全体に適用するイベントリスト、みたいなのを持って、そこにキャラクターがデータを渡せるようにするか
+/// 次のフレームで全体に適用するイベントリスト、みたいなのを持って、そこにキャラクターがデータを渡せるようにする
 /// Dispose必須。AI関連のDispose()はここでやる責任がある。
 /// </summary>
 public class CombatManager : MonoBehaviour, IDisposable
@@ -20,10 +19,9 @@ public class CombatManager : MonoBehaviour, IDisposable
     #region 定義
 
     /// <summary>
-    /// AIのイベントのタイプ。
-    /// チームのヘイトをいじるか、イベントフラグを立てるかのどっちか
-    /// 各キャラがチームの数と同じだけイベントフラグ入れ物を作って、イベント発生時にビット演算で反映する。
-    /// 倒した系のフラグは撃破時のチームヘイト上昇で対応する。
+    /// AIのイベントのタイプ。<br/>
+    /// 各イベントはチームのヘイトをいじるか、イベントフラグを立てるかの動作。<br/>
+    /// 行動に応じてフラグを立て、そのキャラの所属によって解釈が変わる。
     /// </summary>
     [Flags]
     public enum BrainEventFlagType
@@ -35,17 +33,17 @@ public class CombatManager : MonoBehaviour, IDisposable
         支援を使用 = 1 << 3,         // 支援アビリティを使用した
         //誰かを倒した = 1 << 4,        // 敵または味方を倒した
         //指揮官を倒した = 1 << 5,      // 指揮官を倒した
-        攻撃対象指定 = 1 << 5,        // 指揮官による攻撃対象の指定
-        威圧 = 1 << 6,//威圧状態だと敵が怖がる？ これはバッドステータスでもいいとは思う
+        攻撃対象指定 = 1 << 4,        // 指揮官による攻撃対象の指定
+        威圧 = 1 << 5,//威圧状態だと敵が怖がる？ これはバッドステータスでもいいとは思う
     }
 
     /// <summary>
-    /// AIのイベントの送信先。
-    /// これをシングルトンに渡せばJobシステムで処理してくれる。
-    /// 時間経過したらそのキャラからフラグを消すための設定。消すための記録がこれ。
-    /// イベント追加時に対象キャラにフラグを設定し、抹消時に消す。
-    /// 時間経過の他、キャラ死亡時もここに問い合わせないとな。
-    /// ハッシュが一致するイベントを全探索して削除。
+    /// AIのキャライベントの送信先。
+    /// これをシングルトンに置いてイベント提出先にする。
+    /// 時間経過したらそのキャラからフラグを消すための設定。立てたフラグを消すためにデータを保持する。
+    /// イベント追加時に対象キャラにフラグを設定し、条件を満たしたら立てたフラグを消す。
+    /// 時間経過の他、キャラ死亡時もここに問い合わせないと。
+    /// 対象キャラのハッシュが死亡キャラハッシュと一致するイベントを線形探索して削除とか。
     /// </summary>
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
@@ -73,7 +71,6 @@ public class CombatManager : MonoBehaviour, IDisposable
         /// </summary>
         public float eventHoldTime;
 
-
         /// <summary>
         /// AIのイベントのコンストラクタ。
         /// startTimeは現在時を入れる。
@@ -83,55 +80,388 @@ public class CombatManager : MonoBehaviour, IDisposable
         /// <param name="holdTime"></param>
         public BrainEventContainer(BrainEventFlagType brainEvent, int hashCode, float holdTime)
         {
-            eventType = brainEvent;
-            targetHash = hashCode;
-            startTime = GameManager.instance.NowTime;
-            eventHoldTime = holdTime;
+            this.eventType = brainEvent;
+            this.targetHash = hashCode;
+            this.startTime = GameManager.instance.NowTime;
+            this.eventHoldTime = holdTime;
         }
 
     }
 
+    #region キャラクターデータ関連の構造体定義
+
+    /// <summary>
+    /// Jobシステムで使用するキャラクターデータ構造体。
+    /// </summary>
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CharacterData : IDisposable, ILogicalDelate
+    {
+        /// <summary>
+        /// 新しいキャラクターデータを取得する。
+        /// </summary>
+        /// <param name="status"></param>
+        /// <param name="gameObject"></param>
+        public CharacterData(JobAITestStatus status, GameObject gameObject)
+        {
+            this.brainData = new NativeHashMap<int, CharacterBrainStatusForJob>(status.brainData.Count, Allocator.Persistent);
+
+            foreach ( var item in status.brainData )
+            {
+                CharacterBrainStatusForJob newData = new(item.Value, Allocator.Persistent);
+                this.brainData.Add((int)item.Key, newData);
+            }
+
+            this.hashCode = gameObject.GetHashCode();
+            this.liveData = new CharacterUpdateData(status.baseData, gameObject.transform.position);
+            this.solidData = status.solidData;
+            this.targetingCount = 0;
+            // 最初はマイナスで10000を入れることですぐ動けるように
+            this.lastJudgeTime = -10000;
+
+            this.personalHate = new NativeHashMap<int, int>(7, Allocator.Persistent);
+            this.shortRangeCharacter = new UnsafeList<int>(7, Allocator.Persistent);
+
+            this.moveJudgeInterval = status.moveJudgeInterval;
+            this.lastMoveJudgeTime = 0;// どうせ行動判断時に振り向くから
+
+            // 最初は論理削除フラグなし。
+            this.isLogicalDelate = BitableBool.FALSE;
+        }
+
+        /// <summary>
+        /// 固定のデータ。
+        /// </summary>
+        public SolidData solidData;
+
+        /// <summary>
+        /// キャラのAIの設定。(Jobバージョン)
+        /// モードごとにモードEnumをint変換した数をインデックスにした配列になる。
+        /// </summary>
+        public NativeHashMap<int, CharacterBrainStatusForJob> brainData;
+
+        /// <summary>
+        /// 更新されうるデータ。
+        /// </summary>
+        public CharacterUpdateData liveData;
+
+        /// <summary>
+        /// 自分を狙ってる敵の数。
+        /// ボスか指揮官は無視でよさそう
+        /// 今攻撃してるやつも攻撃を終えたら別のターゲットを狙う。
+        /// このタイミングで割りこめるやつが割り込む
+        /// あくまでヘイト値を減らす感じで。一旦待機になって、ヘイト減るだけなので殴られたら殴り返すよ
+        /// 遠慮状態以外なら遠慮になるし、遠慮中でなお一番ヘイト高いなら攻撃して、その次は遠慮になる
+        /// </summary>
+        public int targetingCount;
+
+        /// <summary>
+        /// 最後に判断した時間。
+        /// </summary>
+        public float lastJudgeTime;
+
+        /// <summary>
+        /// 最後に移動判断した時間。
+        /// </summary>
+        public float lastMoveJudgeTime;
+
+        /// <summary>
+        /// キャラクターのハッシュ値を保存しておく。
+        /// </summary>
+        public int hashCode;
+
+        /// <summary>
+        /// 攻撃してきた相手とか、直接的な条件に当てはまった相手のヘイトだけ記録する。
+        /// </summary>
+        public NativeHashMap<int, int> personalHate;
+
+        /// <summary>
+        /// 近くにいるキャラクターの記録。
+        /// これはセンサーで断続的に取得する参考値。
+        /// 要素数上限は7~10の予定
+        /// </summary>
+        public UnsafeList<int> shortRangeCharacter;
+
+        /// <summary>
+        /// AIの移動判断間隔
+        /// </summary>
+        [Header("移動判断間隔")]
+        public float moveJudgeInterval;
+
+        /// <summary>
+        /// 論理削除フラグ。
+        /// </summary>
+        /// 
+        private BitableBool isLogicalDelate;
+
+        /// <summary>
+        /// NativeContainerを含むメンバーを破棄。
+        /// CombatManagerが責任を持って破棄する。
+        /// </summary>
+        public void Dispose()
+        {
+            this.brainData.Dispose();
+            this.personalHate.Dispose();
+            this.shortRangeCharacter.Dispose();
+        }
+
+        /// <summary>
+        /// 論理削除フラグの確認。
+        /// </summary>
+        /// <returns>真であれば論理削除済み</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsLogicalDelate()
+        {
+            return this.isLogicalDelate == BitableBool.TRUE;
+        }
+
+        /// <summary>
+        /// 論理削除を実行する。
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void LogicalDelete()
+        {
+            this.isLogicalDelate = BitableBool.TRUE;
+        }
+    }
+
+    /// <summary>
+    /// AIの設定。（Jobシステム仕様）
+    /// ステータスのCharacterBrainStatusから移植する。
+    /// </summary>
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CharacterBrainStatusForJob : IDisposable
+    {
+        /// <summary>
+        /// AIの判断間隔
+        /// </summary>
+        [Header("判断間隔")]
+        public float judgeInterval;
+
+        /// <summary>
+        /// 行動条件データ
+        /// </summary>
+        [Header("行動条件データ")]
+        public NativeArray<BehaviorData> actCondition;
+
+        /// <summary>
+        /// 攻撃以外の行動条件データ.
+        /// 最初の要素ほど優先度高いので重点。
+        /// </summary>
+        [Header("ヘイト条件データ")]
+        public NativeArray<TargetJudgeData> hateCondition;
+
+        /// <summary>
+        /// NativeArrayリソースを解放する
+        /// </summary>
+        public void Dispose()
+        {
+            if ( this.actCondition.IsCreated )
+            {
+                this.actCondition.Dispose();
+            }
+
+            if ( this.hateCondition.IsCreated )
+            {
+                this.hateCondition.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// オリジナルのCharacterBrainStatusからデータを明示的に移植
+        /// </summary>
+        /// <param name="source">移植元のキャラクターブレインステータス</param>
+        /// <param name="allocator">NativeArrayに使用するアロケータ</param>
+        public CharacterBrainStatusForJob(in CharacterBrainStatus source, Allocator allocator)
+        {
+
+            // 基本プロパティをコピー
+            this.judgeInterval = source.judgeInterval;
+
+            // 配列を新しく作成
+            this.actCondition = source.actCondition != null
+                ? new NativeArray<BehaviorData>(source.actCondition, allocator)
+                : new NativeArray<BehaviorData>(0, allocator);
+
+            this.hateCondition = source.hateCondition != null
+                ? new NativeArray<TargetJudgeData>(source.hateCondition, allocator)
+                : new NativeArray<TargetJudgeData>(0, allocator);
+        }
+
+    }
+
+    /// <summary>
+    /// 更新されるキャラクターの情報。
+    /// 状態異常とかバフも入れて時間継続の終了までJobで見るか。
+    /// </summary>
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CharacterUpdateData
+    {
+        /// <summary>
+        /// 最大体力
+        /// </summary>
+        public int maxHp;
+
+        /// <summary>
+        /// 体力
+        /// </summary>
+        public int currentHp;
+
+        /// <summary>
+        /// 最大魔力
+        /// </summary>
+        public int maxMp;
+
+        /// <summary>
+        /// 魔力
+        /// </summary>
+        public int currentMp;
+
+        /// <summary>
+        /// HPの割合
+        /// </summary>
+        public int hpRatio;
+
+        /// <summary>
+        /// MPの割合
+        /// </summary>
+        public int mpRatio;
+
+        /// <summary>
+        /// 各属性の基礎攻撃力
+        /// </summary>
+        public ElementalStats atk;
+
+        /// <summary>
+        /// 全攻撃力の加算。
+        /// </summary>
+        public int dispAtk;
+
+        /// <summary>
+        /// 各属性の基礎防御力
+        /// </summary>
+        public ElementalStats def;
+
+        /// <summary>
+        /// 全防御力の加算。
+        /// </summary>
+        public int dispDef;
+
+        /// <summary>
+        /// 現在位置。
+        /// </summary>
+        public Vector2 nowPosition;
+
+        /// <summary>
+        /// 現在のキャラクターの所属
+        /// </summary>
+        public CharacterSide belong;
+
+        /// <summary>
+        /// 現在の行動状況。
+        /// 判断間隔経過したら更新？
+        /// 攻撃されたりしたら更新？
+        /// あと仲間からの命令とかでも更新していいかも
+        /// 
+        /// 移動とか逃走でAIの動作が変わる。
+        /// 逃走の場合は敵の距離を参照して相手が少ないところに逃げようと考えたり
+        /// </summary>
+        public ActState actState;
+
+        /// <summary>
+        /// キャラが大ダメージを与えた、などのイベントを格納する場所。
+        /// </summary>
+        public int brainEventBit;
+
+        /// <summary>
+        /// バフやデバフなどの現在の効果
+        /// </summary>
+        public SpecialEffect nowEffect;
+
+        /// <summary>
+        /// AIが他者の行動を認識するためのイベントフラグ。
+        /// 列挙型AIEventFlagType　のビット演算に使う。
+        /// CombatManagerがフラグ管理はしてくれる
+        /// </summary>
+        public BrainEventFlagType brainEvent;
+
+        /// <summary>
+        /// 既存のCharacterUpdateDataにCharacterBaseDataの値を適用する
+        /// </summary>
+        /// <param name="baseData">適用元のベースデータ</param>
+        public CharacterUpdateData(in CharacterBaseData baseData, Vector2 initialPosition)
+        {
+            // 攻撃力と防御力を更新
+            this.atk = baseData.baseAtk;
+            this.def = baseData.baseDef;
+
+            this.maxHp = baseData.hp;
+            this.maxMp = baseData.mp;
+            this.currentHp = baseData.hp;
+            this.currentMp = baseData.mp;
+            this.hpRatio = 1;
+            this.mpRatio = 1;
+
+            this.belong = baseData.initialBelong;
+
+            this.nowPosition = initialPosition;
+
+            this.actState = baseData.initialMove;
+            this.brainEventBit = 0;
+
+            this.dispAtk = this.atk.ReturnSum();
+            this.dispDef = this.def.ReturnSum();
+
+            this.nowEffect = SpecialEffect.なし;
+            this.brainEvent = BrainEventFlagType.None;
+        }
+    }
+
+    #endregion キャラクターデータ関連の構造体定義
+
     #endregion 定義
 
     /// <summary>
-    /// シングルトン。
+    /// シングルトンのインスタンス。
     /// </summary>
     public static CombatManager instance;
 
     /// <summary>
-    /// キャラデータを保持するコレクション。
-    /// 陣営ごとに分ける
-    /// Jobシステムに渡す時は上手くCharacterDataのNativeArrayにしてやろう。
+    /// キャラデータを保持するコレクション。<br/>
+    /// Jobシステムに渡す時はCharacterDataのUnsafeListにする。<br/>
+    /// 座標だけはIJobParallelForTransformで取得する？　せっかくだしLocalScale（＝キャラの向き）まで取っておくといいかも。<>br/>
+    /// 向きなんて方向転換した時にデータ書き換えればいいだけかも
     /// </summary>
-    public CharacterDataDictionary<CharacterData, JTestAIBase> charaDataDictionary = new CharacterDataDictionary<CharacterData, JTestAIBase>(7);
+    public CharacterDataDictionary<CharacterData, JTestAIBase> charaDataDictionary = new(7);
 
     /// <summary>
-    /// プレイヤー、敵、その他、それぞれが敵対している陣営をビットで表現。
-    /// キャラデータのチーム設定と一緒に使う
+    /// プレイヤー、敵、その他、それぞれが敵対している陣営をビットで表現。<br/>
+    /// キャラデータのチーム設定と一緒に使う<br/>
     /// </summary>
-    public static NativeArray<int> relationMap = new Unity.Collections.NativeArray<int>(3, Allocator.Persistent);
+    public static NativeArray<int> relationMap = new(3, Allocator.Persistent);
 
     /// <summary>
-    /// 陣営ごとに設定されたヘイト値。
-    /// ハッシュキーにはゲームオブジェクトのハッシュ値を渡す。
-    /// 配列の要素ごとにジョブを実行
-    /// いやたぶんジョブシステムじゃなくてハッシュで個別に対象オブジェクトにヘイト設定した方が速い
-    /// イベントの数だけハッシュマップをループして、
+    /// 陣営ごとに設定されたヘイト値。<br/>
+    /// ハッシュキーにはゲームオブジェクトのハッシュ値とチームの情報を渡す<br/>
+    /// (チーム値,ハッシュ値)という形式<br/>
     /// </summary>
-    public NativeHashMap<int2, int> teamHate = new NativeHashMap<int2, int>(7, Allocator.Persistent);
+    public NativeHashMap<int2, int> teamHate = new(7, Allocator.Persistent);
 
     /// <summary>
     /// AIのイベントを受け付ける入れ物。
     /// 時間管理のために使う。
     /// Jobシステムで一括で時間見るか、普通にループするか（イベントはそんなに数がなさそうだし普通が速いかも）
     /// </summary>
-    public UnsafeList<BrainEventContainer> eventContainer = new UnsafeList<BrainEventContainer>(7, Allocator.Persistent);
+    public UnsafeList<BrainEventContainer> eventContainer = new(7, Allocator.Persistent);
 
     /// <summary>
     /// 行動決定データ。
-    /// Jobの書き込み先で、ターゲット変更の反映とかも全部これをもとに受け取ったキャラクターがやる。
+    /// Jobの書き込み先で、ターゲット変更の反映とかも全部はいってる。<br/>
+    /// これを受け取ってキャラクターが行動する。
     /// </summary>
-    public UnsafeList<MovementInfo> judgeResult = new UnsafeList<MovementInfo>(7, Allocator.Persistent);
+    public UnsafeList<MovementInfo> judgeResult = new(7, Allocator.Persistent);
 
     /// <summary>
     /// 前回判断を実行した際の時間を記録する。
@@ -155,20 +485,13 @@ public class CombatManager : MonoBehaviour, IDisposable
         }
     }
 
-
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
-    {
-
-    }
-
     /// <summary>
     /// ここで毎フレームジョブを発行する。
     /// </summary>
-    void Update()
+    private void Update()
     {
         // 毎フレームジョブ実行
-        BrainJobAct();
+        this.BrainJobAct();
     }
 
     /// <summary>
@@ -184,7 +507,7 @@ public class CombatManager : MonoBehaviour, IDisposable
         int hashCode = addObject.GetHashCode();
 
         // キャラデータを追加し、敵対する陣営のヘイトリストにも入れる。
-        charaDataDictionary.AddByHash(hashCode, new CharacterData(status, addObject));
+        _ = this.charaDataDictionary.AddByHash(hashCode, new CharacterData(status, addObject));
 
         for ( int i = 0; i < (int)CharacterSide.指定なし; i++ )
         {
@@ -194,10 +517,10 @@ public class CombatManager : MonoBehaviour, IDisposable
             }
 
             // 敵対チェック
-            if ( CheckTeamHostility(i, teamNum) )
+            if ( this.CheckTeamHostility(i, teamNum) )
             {
                 // ひとまずヘイトの初期値は10とする。
-                teamHate.Add(new int2(i, hashCode), 10);
+                this.teamHate.Add(new int2(i, hashCode), 10);
             }
         }
     }
@@ -210,33 +533,32 @@ public class CombatManager : MonoBehaviour, IDisposable
     /// <param name="team"></param>
     public void CharacterDead(int hashCode, CharacterSide team)
     {
-        int teamNum = (int)team;
 
         // 削除の前に値を処理する。
-        charaDataDictionary[hashCode].Dispose();
+        this.charaDataDictionary[hashCode].Dispose();
 
         // キャラデータを削除し、敵対する陣営のヘイトリストからも消す。
-        charaDataDictionary.RemoveByHash(hashCode);
+        _ = this.charaDataDictionary.RemoveByHash(hashCode);
 
         for ( int i = 0; i < (int)CharacterSide.指定なし; i++ )
         {
-            int2 checkTeam = new int2(i, hashCode);
+            int2 checkTeam = new(i, hashCode);
 
             // 含むかをチェック
-            if ( teamHate.ContainsKey(checkTeam) )
+            if ( this.teamHate.ContainsKey(checkTeam) )
             {
-                teamHate.Remove(checkTeam);
+                _ = this.teamHate.Remove(checkTeam);
             }
         }
 
-        // 消えるやつに紐づいたイベントを削除。
+        // 消えるキャラに紐づいたイベントを削除。
         // 安全にループ内で削除するために後ろから前へとループする。
-        for ( int i = eventContainer.Length - 1; i > 0; i-- )
+        for ( int i = this.eventContainer.Length - 1; i > 0; i-- )
         {
-            // 消えるやつにハッシュが一致するなら。
-            if ( eventContainer[i].targetHash == hashCode )
+            // 消えるキャラにハッシュが一致するなら。
+            if ( this.eventContainer[i].targetHash == hashCode )
             {
-                eventContainer.RemoveAtSwapBack(i);
+                this.eventContainer.RemoveAtSwapBack(i);
             }
         }
     }
@@ -250,7 +572,7 @@ public class CombatManager : MonoBehaviour, IDisposable
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
     private bool CheckTeamHostility(int team1, int team2)
     {
-        return (relationMap[team1] & 1 << team2) > 0;
+        return (relationMap[team1] & (1 << team2)) > 0;
     }
 
     /// <summary>
@@ -260,26 +582,47 @@ public class CombatManager : MonoBehaviour, IDisposable
     {
         for ( int i = 0; i < 3; i++ )
         {
-            charaDataDictionary[i].Dispose();
-            teamHate.Dispose();
+            this.charaDataDictionary[i].Dispose();
+            this.teamHate.Dispose();
         }
-        eventContainer.Dispose();
-        teamHate.Dispose();
-        relationMap.Dispose();
 
-        // デリゲート配列も責任をもって破棄
-        AiFunctionLibrary.targetFunctions.Dispose();
-        AiFunctionLibrary.skipFunctions.Dispose();
+        this.eventContainer.Dispose();
+        this.teamHate.Dispose();
+        relationMap.Dispose();
 
         Destroy(instance);
     }
 
     /// <summary>
-    /// ジョブを実行する。
+    /// 毎フレームジョブを実行する。
     /// </summary>
     private void BrainJobAct()
     {
-        AITestJob brainJob = new AITestJob
+        // キャラの数。
+        int _characterCount = this.charaDataDictionary.Count;
+
+        // ジョブの処理対象データの分割数。
+        int _jobBatchCount;
+
+        //  キャラクター数に対してバッチカウントの最適化
+        if ( _characterCount <= 32 )
+        {
+            _jobBatchCount = 1;
+        }
+        else if ( _characterCount <= 128 )
+        {
+            _jobBatchCount = 16;
+        }
+        else if ( _characterCount <= 512 )
+        {
+            _jobBatchCount = 64;
+        }
+        else // 513～1000
+        {
+            _jobBatchCount = 128;
+        }
+
+        AITestJob brainJob = new()
         {
             // データの引き渡し。
             relationMap = relationMap,
@@ -289,7 +632,8 @@ public class CombatManager : MonoBehaviour, IDisposable
             judgeResult = this.judgeResult
         };
 
-        JobHandle handle = brainJob.Schedule(brainJob.characterData.Length, 64);
+        // ジョブ実行。
+        JobHandle handle = brainJob.Schedule(brainJob.characterData.Length, _jobBatchCount);
 
         // ジョブの完了を待機
         handle.Complete();

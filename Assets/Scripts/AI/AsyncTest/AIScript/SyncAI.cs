@@ -1,5 +1,3 @@
-using UnityEngine;
-
 public class SyncAI : AsyncTestBase
 {
 
@@ -14,7 +12,7 @@ public class SyncAI : AsyncTestBase
     private void Update()
     {
         // ”»’f‚ğƒpƒX‚µ‚½‚È‚çˆÚ“®”»’f‚ğ‚·‚éB
-        if ( IntervalEndJudge() )
+        if ( this.IntervalEndJudge() )
         {
             base.MoveJudgeAct();
         }

@@ -1,12 +1,10 @@
+using NUnit.Framework;
 using System;
 using System.Collections.Generic;
-using NUnit.Framework;
-using UnityEngine;
-using UnityEngine.TestTools;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.PerformanceTesting;
-using System.Linq;
+using UnityEngine;
 
 /// <summary>
 /// 様々なネイティブコンテナとマネージドコレクションの追加・削除パフォーマンス比較テスト
@@ -37,19 +35,19 @@ public class NativeContainerAddRemoveTest
     public unsafe void Setup()
     {
         // 標準コレクションの初期化
-        dictionary = new Dictionary<int, int>(ElementCount);
-        list = new List<int>(ElementCount);
+        this.dictionary = new Dictionary<int, int>(ElementCount);
+        this.list = new List<int>(ElementCount);
 
         // ネイティブコンテナの初期化
-        nativeList = new NativeList<int>(ElementCount, Allocator.Persistent);
-        unsafeList = new UnsafeList<int>(ElementCount, Allocator.Persistent);
-        parallelHashMap = new NativeParallelHashMap<int, int>(ElementCount, Allocator.Persistent);
-        nativeHashMap = new NativeHashMap<int, int>(ElementCount, Allocator.Persistent);
-        unsafeHashMap = new UnsafeHashMap<int, int>(ElementCount, Allocator.Persistent);
+        this.nativeList = new NativeList<int>(ElementCount, Allocator.Persistent);
+        this.unsafeList = new UnsafeList<int>(ElementCount, Allocator.Persistent);
+        this.parallelHashMap = new NativeParallelHashMap<int, int>(ElementCount, Allocator.Persistent);
+        this.nativeHashMap = new NativeHashMap<int, int>(ElementCount, Allocator.Persistent);
+        this.unsafeHashMap = new UnsafeHashMap<int, int>(ElementCount, Allocator.Persistent);
 
         // UnsafePtrList用の初期化
-        unsafePtrList = new UnsafePtrList<int>(ElementCount, Allocator.Persistent);
-        ptrHolders = new NativeArray<IntPtr>(ElementCount, Allocator.Persistent);
+        this.unsafePtrList = new UnsafePtrList<int>(ElementCount, Allocator.Persistent);
+        this.ptrHolders = new NativeArray<IntPtr>(ElementCount, Allocator.Persistent);
 
         Debug.Log($"AddRemoveTests: Setup complete with {ElementCount} elements capacity");
     }
@@ -58,37 +56,51 @@ public class NativeContainerAddRemoveTest
     public unsafe void TearDown()
     {
         // UnsafePtrListで確保したメモリの解放
-        for ( int i = 0; i < ptrHolders.Length; i++ )
+        for ( int i = 0; i < this.ptrHolders.Length; i++ )
         {
-            if ( ptrHolders[i] != IntPtr.Zero )
+            if ( this.ptrHolders[i] != IntPtr.Zero )
             {
-                UnsafeUtility.Free((void*)ptrHolders[i], Allocator.Persistent);
-                ptrHolders[i] = IntPtr.Zero;
+                UnsafeUtility.Free((void*)this.ptrHolders[i], Allocator.Persistent);
+                this.ptrHolders[i] = IntPtr.Zero;
             }
         }
 
         // コンテナの解放
-        if ( ptrHolders.IsCreated )
-            ptrHolders.Dispose();
+        if ( this.ptrHolders.IsCreated )
+        {
+            this.ptrHolders.Dispose();
+        }
 
-        if ( unsafePtrList.IsCreated )
-            unsafePtrList.Dispose();
+        if ( this.unsafePtrList.IsCreated )
+        {
+            this.unsafePtrList.Dispose();
+        }
 
         // ネイティブコンテナの解放
-        if ( nativeList.IsCreated )
-            nativeList.Dispose();
+        if ( this.nativeList.IsCreated )
+        {
+            this.nativeList.Dispose();
+        }
 
-        if ( unsafeList.IsCreated )
-            unsafeList.Dispose();
+        if ( this.unsafeList.IsCreated )
+        {
+            this.unsafeList.Dispose();
+        }
 
-        if ( parallelHashMap.IsCreated )
-            parallelHashMap.Dispose();
+        if ( this.parallelHashMap.IsCreated )
+        {
+            this.parallelHashMap.Dispose();
+        }
 
-        if ( nativeHashMap.IsCreated )
-            nativeHashMap.Dispose();
+        if ( this.nativeHashMap.IsCreated )
+        {
+            this.nativeHashMap.Dispose();
+        }
 
-        if ( unsafeHashMap.IsCreated )
-            unsafeHashMap.Dispose();
+        if ( this.unsafeHashMap.IsCreated )
+        {
+            this.unsafeHashMap.Dispose();
+        }
 
         Debug.Log("AddRemoveTests: All resources disposed");
     }
@@ -326,22 +338,22 @@ public class NativeContainerAddRemoveTest
         Measure.Method(() =>
         {
             // 測定前にデータを準備
-            dictionary.Clear();
+            this.dictionary.Clear();
             for ( int i = 0; i < ElementCount; i++ )
             {
-                dictionary[i] = i;
+                this.dictionary[i] = i;
             }
 
             // 全ての要素を削除
             for ( int i = 0; i < ElementCount; i++ )
             {
-                dictionary.Remove(i);
+                _ = this.dictionary.Remove(i);
             }
 
             // 確認（測定後）
-            if ( dictionary.Count != 0 )
+            if ( this.dictionary.Count != 0 )
             {
-                Debug.LogError($"Dictionary still has {dictionary.Count} elements after removal");
+                Debug.LogError($"Dictionary still has {this.dictionary.Count} elements after removal");
             }
         })
         .WarmupCount(WarmupCount)
@@ -356,22 +368,22 @@ public class NativeContainerAddRemoveTest
         Measure.Method(() =>
         {
             // テスト用にデータを準備
-            list.Clear();
+            this.list.Clear();
             for ( int i = 0; i < ElementCount; i++ )
             {
-                list.Add(i);
+                this.list.Add(i);
             }
 
             // リストが空になるまで最後の要素を削除し続ける
-            while ( list.Count > 0 )
+            while ( this.list.Count > 0 )
             {
-                list.RemoveAt(list.Count - 1);
+                this.list.RemoveAt(this.list.Count - 1);
             }
 
             // 確認（測定後）
-            if ( list.Count != 0 )
+            if ( this.list.Count != 0 )
             {
-                Debug.LogError($"List still has {list.Count} elements after removal");
+                Debug.LogError($"List still has {this.list.Count} elements after removal");
             }
         })
         .WarmupCount(WarmupCount)
@@ -386,22 +398,22 @@ public class NativeContainerAddRemoveTest
         Measure.Method(() =>
         {
             // テスト用にデータを準備
-            nativeList.Clear();
+            this.nativeList.Clear();
             for ( int i = 0; i < ElementCount; i++ )
             {
-                nativeList.Add(i);
+                this.nativeList.Add(i);
             }
 
             // リストが空になるまで最後の要素を削除し続ける
-            while ( nativeList.Length > 0 )
+            while ( this.nativeList.Length > 0 )
             {
-                nativeList.RemoveAt(nativeList.Length - 1);
+                this.nativeList.RemoveAt(this.nativeList.Length - 1);
             }
 
             // 確認（測定後）
-            if ( nativeList.Length != 0 )
+            if ( this.nativeList.Length != 0 )
             {
-                Debug.LogError($"NativeList still has {nativeList.Length} elements after removal");
+                Debug.LogError($"NativeList still has {this.nativeList.Length} elements after removal");
             }
         })
         .WarmupCount(WarmupCount)
@@ -416,22 +428,22 @@ public class NativeContainerAddRemoveTest
         Measure.Method(() =>
         {
             // テスト用にデータを準備
-            unsafeList.Clear();
+            this.unsafeList.Clear();
             for ( int i = 0; i < ElementCount; i++ )
             {
-                unsafeList.Add(i);
+                this.unsafeList.Add(i);
             }
 
             // リストが空になるまで最後の要素を削除し続ける
-            while ( unsafeList.Length > 0 )
+            while ( this.unsafeList.Length > 0 )
             {
-                unsafeList.RemoveAt(unsafeList.Length - 1);
+                this.unsafeList.RemoveAt(this.unsafeList.Length - 1);
             }
 
             // 確認（測定後）
-            if ( unsafeList.Length != 0 )
+            if ( this.unsafeList.Length != 0 )
             {
-                Debug.LogError($"UnsafeList still has {unsafeList.Length} elements after removal");
+                Debug.LogError($"UnsafeList still has {this.unsafeList.Length} elements after removal");
             }
         })
         .WarmupCount(WarmupCount)
@@ -446,15 +458,15 @@ public class NativeContainerAddRemoveTest
         Measure.Method(() =>
         {
             // テスト用にデータを準備 - 各測定につき新たにポインタを作成
-            unsafePtrList.Clear();
+            this.unsafePtrList.Clear();
 
             // 既存のポインタをすべて解放
-            for ( int i = 0; i < ptrHolders.Length; i++ )
+            for ( int i = 0; i < this.ptrHolders.Length; i++ )
             {
-                if ( ptrHolders[i] != IntPtr.Zero )
+                if ( this.ptrHolders[i] != IntPtr.Zero )
                 {
-                    UnsafeUtility.Free((void*)ptrHolders[i], Allocator.Persistent);
-                    ptrHolders[i] = IntPtr.Zero;
+                    UnsafeUtility.Free((void*)this.ptrHolders[i], Allocator.Persistent);
+                    this.ptrHolders[i] = IntPtr.Zero;
                 }
             }
 
@@ -463,33 +475,33 @@ public class NativeContainerAddRemoveTest
             {
                 IntPtr ptr = (IntPtr)UnsafeUtility.Malloc(sizeof(int), UnsafeUtility.AlignOf<int>(), Allocator.Persistent);
                 *(int*)ptr = i; // 値の設定
-                ptrHolders[i] = ptr; // 後で解放するために保存
-                unsafePtrList.Add((int*)ptr);
+                this.ptrHolders[i] = ptr; // 後で解放するために保存
+                this.unsafePtrList.Add((int*)ptr);
             }
 
             // リストが空になるまで最後の要素を削除し続ける（メモリ解放も行う）
-            while ( unsafePtrList.Length > 0 )
+            while ( this.unsafePtrList.Length > 0 )
             {
-                int index = unsafePtrList.Length - 1;
-                int* ptr = unsafePtrList[index];
-                unsafePtrList.RemoveAt(index);
+                int index = this.unsafePtrList.Length - 1;
+                int* ptr = this.unsafePtrList[index];
+                this.unsafePtrList.RemoveAt(index);
 
                 // 対応するptrHoldersのエントリを見つけ、メモリを解放
-                for ( int i = 0; i < ptrHolders.Length; i++ )
+                for ( int i = 0; i < this.ptrHolders.Length; i++ )
                 {
-                    if ( ptrHolders[i] == (IntPtr)ptr )
+                    if ( this.ptrHolders[i] == (IntPtr)ptr )
                     {
                         UnsafeUtility.Free(ptr, Allocator.Persistent);
-                        ptrHolders[i] = IntPtr.Zero;
+                        this.ptrHolders[i] = IntPtr.Zero;
                         break;
                     }
                 }
             }
 
             // 確認（測定後）
-            if ( unsafePtrList.Length != 0 )
+            if ( this.unsafePtrList.Length != 0 )
             {
-                Debug.LogError($"UnsafePtrList still has {unsafePtrList.Length} elements after removal");
+                Debug.LogError($"UnsafePtrList still has {this.unsafePtrList.Length} elements after removal");
             }
         })
         .WarmupCount(WarmupCount)
@@ -504,22 +516,22 @@ public class NativeContainerAddRemoveTest
         Measure.Method(() =>
         {
             // 測定前にデータを準備
-            parallelHashMap.Clear();
+            this.parallelHashMap.Clear();
             for ( int i = 0; i < ElementCount; i++ )
             {
-                parallelHashMap.Add(i, i);
+                this.parallelHashMap.Add(i, i);
             }
 
             // 全ての要素を削除
             for ( int i = 0; i < ElementCount; i++ )
             {
-                parallelHashMap.Remove(i);
+                _ = this.parallelHashMap.Remove(i);
             }
 
             // 確認（測定後）
-            if ( parallelHashMap.Count() != 0 )
+            if ( this.parallelHashMap.Count() != 0 )
             {
-                Debug.LogError($"ParallelHashMap still has {parallelHashMap.Count()} elements after removal");
+                Debug.LogError($"ParallelHashMap still has {this.parallelHashMap.Count()} elements after removal");
             }
         })
         .WarmupCount(WarmupCount)
@@ -534,22 +546,22 @@ public class NativeContainerAddRemoveTest
         Measure.Method(() =>
         {
             // 測定前にデータを準備
-            nativeHashMap.Clear();
+            this.nativeHashMap.Clear();
             for ( int i = 0; i < ElementCount; i++ )
             {
-                nativeHashMap.Add(i, i);
+                this.nativeHashMap.Add(i, i);
             }
 
             // 全ての要素を削除
             for ( int i = 0; i < ElementCount; i++ )
             {
-                nativeHashMap.Remove(i);
+                _ = this.nativeHashMap.Remove(i);
             }
 
             // 確認（測定後）
-            if ( nativeHashMap.Count != 0 )
+            if ( this.nativeHashMap.Count != 0 )
             {
-                Debug.LogError($"NativeHashMap still has {nativeHashMap.Count} elements after removal");
+                Debug.LogError($"NativeHashMap still has {this.nativeHashMap.Count} elements after removal");
             }
         })
         .WarmupCount(WarmupCount)
@@ -564,22 +576,22 @@ public class NativeContainerAddRemoveTest
         Measure.Method(() =>
         {
             // 測定前にデータを準備
-            unsafeHashMap.Clear();
+            this.unsafeHashMap.Clear();
             for ( int i = 0; i < ElementCount; i++ )
             {
-                unsafeHashMap.Add(i, i);
+                this.unsafeHashMap.Add(i, i);
             }
 
             // 全ての要素を削除
             for ( int i = 0; i < ElementCount; i++ )
             {
-                unsafeHashMap.Remove(i);
+                _ = this.unsafeHashMap.Remove(i);
             }
 
             // 確認（測定後）
-            if ( unsafeHashMap.Count != 0 )
+            if ( this.unsafeHashMap.Count != 0 )
             {
-                Debug.LogError($"UnsafeHashMap still has {unsafeHashMap.Count} elements after removal");
+                Debug.LogError($"UnsafeHashMap still has {this.unsafeHashMap.Count} elements after removal");
             }
         })
         .WarmupCount(WarmupCount)

@@ -1,23 +1,21 @@
-using Unity.Jobs;
-using UnityEngine;
-using Unity.Collections;
-using static JTestAIBase;
-using Unity.Collections.LowLevel.Unsafe;
-using static CombatManager;
-using System.ComponentModel;
-using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
-using System.Runtime.CompilerServices;
-using static JobAITestStatus;
-using Unity.Burst;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System;
+using System.Runtime.CompilerServices;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 using Unity.Mathematics;
-
+using UnityEngine;
+using static CombatManager;
+using static JobAITestStatus;
+using static JTestAIBase;
+using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
 
 /// <summary>
 /// AIが判断を行うJob
 /// 流れとしてはヘイト判断（ここで一番憎いヤツは出しておく）→行動判断→対象設定（攻撃/防御の場合ヘイト、それ以外の場合は任意条件を優先順に判断）
 /// ヘイト処理はチームヘイトが一番高いやつを陣営ごとに出しておいて、個人ヘイト足したらそれを超えるか、で見ていこうか
+/// UnsafeList<CharacterData> characterDataは論理削除で中身ないデータもあるからその判別もしないとな
 /// </summary>
 [BurstCompile]
 public struct AITestJob : IJobParallelFor
@@ -60,17 +58,23 @@ public struct AITestJob : IJobParallelFor
     [BurstCompile]
     public void Execute(int index)
     {
+        // 論理削除を確認し、削除されていれば無視。
+        if ( this.characterData[index].IsLogicalDelate() )
+        {
+            return;
+        }
+
         // 結果の構造体を作成。
-        MovementInfo resultData = new MovementInfo();
+        MovementInfo resultData = new();
 
         // 現在の行動のステートを数値に変換
-        int nowMode = (int)characterData[index].liveData.actState;
+        int nowMode = (int)this.characterData[index].liveData.actState;
 
         // 判断時間が経過したかを確認。
         // 経過してないなら処理しない。
         // あるいはターゲット消えた場合も判定したい。チームヘイトに含まれてなければ。それだと味方がヘイトの時どうするの。
         // キャラ死亡時に全キャラに対しターゲットしてるかどうかを確認するようにしよう。で、ターゲットだったら前回判断時間をマイナスにする。
-        if ( nowTime - characterData[index].lastJudgeTime < characterData[index].brainData[nowMode].judgeInterval )
+        if ( this.nowTime - this.characterData[index].lastJudgeTime < this.characterData[index].brainData[nowMode].judgeInterval )
         {
             resultData.result = JudgeResult.何もなし;
 
@@ -80,15 +84,14 @@ public struct AITestJob : IJobParallelFor
             // Resultを解釈して
 
             // 結果を設定。
-            judgeResult[index] = resultData;
+            this.judgeResult[index] = resultData;
 
             return;
         }
 
-        CharacterData myData = characterData[index];
+        CharacterData myData = this.characterData[index];
 
         // characterData[index].brainData[nowMode].judgeInterval みたいな値は何回も使うなら一時変数に保存していい。
-
 
         // まず判断時間の経過を確認
         // 次に線形探索で行動間隔の確認を行いつつ、敵にはヘイト判断も行う。
@@ -149,10 +152,10 @@ public struct AITestJob : IJobParallelFor
         //}
 
         // キャラデータを確認する。
-        for ( int i = 0; i < characterData.Length; i++ )
+        for ( int i = 0; i < this.characterData.Length; i++ )
         {
-            // 自分はスキップ
-            if ( index == i )
+            // 自分と論理削除対象はスキップ
+            if ( index == i || this.characterData[i].IsLogicalDelate() )
             {
                 continue;
             }
@@ -177,7 +180,7 @@ public struct AITestJob : IJobParallelFor
                 for ( int j = 0; j < myData.brainData[nowMode].actCondition.Length - 1; j++ )
                 {
                     // ある条件満たしたらbreakして、以降はそれ以下の条件もう見ない。
-                    if ( CheckActCondition(myData.brainData[nowMode].actCondition[j], myData, characterData[i], teamHate) )
+                    if ( CheckActCondition(myData.brainData[nowMode].actCondition[j], myData, this.characterData[i], this.teamHate) )
                     {
                         selectMove = j;
 
@@ -223,7 +226,6 @@ public struct AITestJob : IJobParallelFor
 
         //}
 
-
         // その後、二回目のループで条件に当てはまるキャラを探す。
         // 二回目で済むかな？　判断条件の数だけ探さないとダメじゃない？
         // 準備用のジョブで一番攻撃力が高い/低い、とかのキャラを陣営ごとに探しとくべきじゃない？
@@ -238,11 +240,11 @@ public struct AITestJob : IJobParallelFor
         // それよりは近距離の物理センサーで数秒に一回検査した方がいい。Nonalloc系のサーチでバッファに stack allocも使おう
         // 敵百体以上増やすならトリガーはまずいかも
 
-
         // 最も条件に近いターゲットを確認する。
         // 比較用初期値はInvertによって変動。
         TargetJudgeData targetJudgeData = myData.brainData[nowMode].actCondition[selectMove].targetCondition;
-        int nowValue = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
+
+        _ = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
         int newTargetHash = 0;
 
         // 状態変更の場合ここで戻る。
@@ -253,16 +255,16 @@ public struct AITestJob : IJobParallelFor
             resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
 
             // 判断結果を設定。
-            judgeResult[index] = resultData;
+            this.judgeResult[index] = resultData;
             return;
         }
         // それ以外であればターゲットを判断
         else
         {
-            int tIndex = JudgeTargetByCondition(targetJudgeData, characterData, myData, teamHate);
+            int tIndex = JudgeTargetByCondition(targetJudgeData, this.characterData, myData, this.teamHate);
             if ( tIndex >= 0 )
             {
-                newTargetHash = characterData[tIndex].hashCode;
+                newTargetHash = this.characterData[tIndex].hashCode;
 
                 //   Debug.Log($"ターゲット判断成功:{tIndex}のやつ。  Hash：{newTargetHash}");
             }
@@ -281,7 +283,7 @@ public struct AITestJob : IJobParallelFor
         resultData.targetHash = newTargetHash;
 
         // 判断結果を設定。
-        judgeResult[index] = resultData;
+        this.judgeResult[index] = resultData;
 
         // テスト仕様記録
         // 要素数は10 ～ 1000で
@@ -313,11 +315,12 @@ public struct AITestJob : IJobParallelFor
                 int invertConditionHP = skipData.isInvert == BitableBool.TRUE ? 1 : 0;
                 // 明示的に条件を組み合わせる
                 int condition1HP = equalConditionHP;
-                int condition2HP = (lessConditionHP != 0) == (invertConditionHP != 0) ? 1 : 0;
+                int condition2HP = lessConditionHP != 0 == (invertConditionHP != 0) ? 1 : 0;
                 if ( condition1HP != 0 || condition2HP != 0 )
                 {
                     return 1;
                 }
+
                 return 0;
 
             case SkipJudgeCondition.自分のMPが一定割合の時:
@@ -327,11 +330,12 @@ public struct AITestJob : IJobParallelFor
                 int invertConditionMP = skipData.isInvert == BitableBool.TRUE ? 1 : 0;
                 // 明示的に条件を組み合わせる
                 int condition1MP = equalConditionMP;
-                int condition2MP = (lessConditionMP != 0) == (invertConditionMP != 0) ? 1 : 0;
+                int condition2MP = lessConditionMP != 0 == (invertConditionMP != 0) ? 1 : 0;
                 if ( condition1MP != 0 || condition2MP != 0 )
                 {
                     return 1;
                 }
+
                 return 0;
 
             default:
@@ -374,7 +378,7 @@ public struct AITestJob : IJobParallelFor
                 }
 
                 // チームのヘイトはint2で確認する。
-                int2 hateKey = new int2((int)myData.liveData.belong, targetHash);
+                int2 hateKey = new((int)myData.liveData.belong, targetHash);
 
                 if ( tHate.ContainsKey(hateKey) )
                 {
@@ -392,10 +396,6 @@ public struct AITestJob : IJobParallelFor
                 }
 
                 return result;
-
-            // 集計は廃止
-            //case ActJudgeCondition.対象が一定数の時:
-            //    return HasRequiredNumberOfTargets(context);
 
             case ActJudgeCondition.HPが一定割合の対象がいる時:
 
@@ -422,6 +422,7 @@ public struct AITestJob : IJobParallelFor
                 {
                     result = targetData.liveData.mpRatio <= condition.actCondition.judgeValue;
                 }
+
                 return result;
 
             case ActJudgeCondition.設定距離に対象がいる時:
@@ -442,6 +443,7 @@ public struct AITestJob : IJobParallelFor
                 {
                     result = distance <= judgeDist;
                 }
+
                 return result;
 
             case ActJudgeCondition.特定の属性で攻撃する対象がいる時:
@@ -455,6 +457,7 @@ public struct AITestJob : IJobParallelFor
                 {
                     result = ((int)targetData.solidData.attackElement & condition.actCondition.judgeValue) == 0;
                 }
+
                 return result;
 
             case ActJudgeCondition.特定の数の敵に狙われている時:
@@ -467,6 +470,7 @@ public struct AITestJob : IJobParallelFor
                 {
                     result = targetData.targetingCount <= condition.actCondition.judgeValue;
                 }
+
                 return result;
 
             default: // 条件なし (0) または未定義の値
@@ -475,7 +479,6 @@ public struct AITestJob : IJobParallelFor
     }
 
     #region　ターゲット判断処理
-
 
     /// <summary>
     /// TargetConditionに基づいて判定を行うメソッド
@@ -516,7 +519,6 @@ public struct AITestJob : IJobParallelFor
         //    Debug.Log($" 逆{judgeData.isInvert == BitableBool.TRUE} スコア初期{score}");
         //}
 
-
         switch ( condition )
         {
             case TargetSelectCondition.高度:
@@ -530,8 +532,7 @@ public struct AITestJob : IJobParallelFor
 
                     int height = (int)cData[i].liveData.nowPosition.y;
 
-
-                    // 一番高いやつを求める (isInvert == 1)
+                    // 一番高いキャラクターを求める (isInvert == 1)
                     if ( isInvert == 0 )
                     {
                         int isGreater = height > score ? 1 : 0;
@@ -541,7 +542,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める (isInvert == 0)
+                    // 一番低いキャラクターを求める (isInvert == 0)
                     else
                     {
                         //   Debug.Log($" 番号{index} 高さ{score} 現在の高さ{height}　条件{height < score}");
@@ -554,8 +555,6 @@ public struct AITestJob : IJobParallelFor
                     }
                 }
 
-
-
                 return index;
 
             case TargetSelectCondition.HP割合:
@@ -567,7 +566,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.hpRatio > score ? 1 : 0;
@@ -577,7 +576,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.hpRatio < score ? 1 : 0;
@@ -588,6 +587,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.HP:
@@ -599,7 +599,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.currentHp > score ? 1 : 0;
@@ -609,7 +609,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.currentHp < score ? 1 : 0;
@@ -620,6 +620,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.敵に狙われてる数:
@@ -631,7 +632,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].targetingCount > score ? 1 : 0;
@@ -641,7 +642,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].targetingCount < score ? 1 : 0;
@@ -652,6 +653,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.合計攻撃力:
@@ -663,7 +665,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.dispAtk > score ? 1 : 0;
@@ -673,7 +675,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.dispAtk < score ? 1 : 0;
@@ -684,6 +686,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.合計防御力:
@@ -695,7 +698,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.dispDef > score ? 1 : 0;
@@ -705,7 +708,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.dispDef < score ? 1 : 0;
@@ -716,6 +719,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.斬撃攻撃力:
@@ -727,7 +731,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.atk.slash > score ? 1 : 0;
@@ -737,7 +741,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.atk.slash < score ? 1 : 0;
@@ -748,6 +752,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.刺突攻撃力:
@@ -759,7 +764,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.atk.pierce > score ? 1 : 0;
@@ -769,7 +774,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.atk.pierce < score ? 1 : 0;
@@ -780,6 +785,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.打撃攻撃力:
@@ -791,7 +797,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.atk.strike > score ? 1 : 0;
@@ -801,7 +807,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.atk.strike < score ? 1 : 0;
@@ -812,6 +818,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.炎攻撃力:
@@ -823,7 +830,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.atk.fire > score ? 1 : 0;
@@ -833,7 +840,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.atk.fire < score ? 1 : 0;
@@ -844,6 +851,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.雷攻撃力:
@@ -855,7 +863,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.atk.lightning > score ? 1 : 0;
@@ -865,7 +873,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.atk.lightning < score ? 1 : 0;
@@ -876,6 +884,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.光攻撃力:
@@ -887,7 +896,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.atk.light > score ? 1 : 0;
@@ -897,7 +906,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.atk.light < score ? 1 : 0;
@@ -908,6 +917,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.闇攻撃力:
@@ -919,7 +929,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.atk.dark > score ? 1 : 0;
@@ -929,7 +939,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.atk.dark < score ? 1 : 0;
@@ -940,6 +950,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.斬撃防御力:
@@ -951,7 +962,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.def.slash > score ? 1 : 0;
@@ -961,7 +972,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.def.slash < score ? 1 : 0;
@@ -972,6 +983,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.刺突防御力:
@@ -983,7 +995,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.def.pierce > score ? 1 : 0;
@@ -993,7 +1005,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.def.pierce < score ? 1 : 0;
@@ -1004,6 +1016,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.打撃防御力:
@@ -1015,7 +1028,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.def.strike > score ? 1 : 0;
@@ -1025,7 +1038,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.def.strike < score ? 1 : 0;
@@ -1036,6 +1049,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.炎防御力:
@@ -1047,7 +1061,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.def.fire > score ? 1 : 0;
@@ -1057,7 +1071,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.def.fire < score ? 1 : 0;
@@ -1068,6 +1082,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.雷防御力:
@@ -1079,7 +1094,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.def.lightning > score ? 1 : 0;
@@ -1089,7 +1104,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.def.lightning < score ? 1 : 0;
@@ -1100,6 +1115,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.光防御力:
@@ -1111,7 +1127,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.def.light > score ? 1 : 0;
@@ -1121,7 +1137,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.def.light < score ? 1 : 0;
@@ -1132,6 +1148,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.闇防御力:
@@ -1143,7 +1160,7 @@ public struct AITestJob : IJobParallelFor
                         continue;
                     }
 
-                    // 一番高いやつを求める
+                    // 一番高いキャラクターを求める
                     if ( isInvert == 0 )
                     {
                         int isGreater = cData[i].liveData.def.dark > score ? 1 : 0;
@@ -1153,7 +1170,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める
+                    // 一番低いキャラクターを求める
                     else
                     {
                         int isLess = cData[i].liveData.def.dark < score ? 1 : 0;
@@ -1164,6 +1181,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.距離:
@@ -1181,7 +1199,7 @@ public struct AITestJob : IJobParallelFor
                     float distance = Math.Abs(myPositionX - cData[i].liveData.nowPosition.x) +
                                     Math.Abs(myPositionY - cData[i].liveData.nowPosition.y);
 
-                    // 一番高いやつを求める。
+                    // 一番高いキャラクターを求める。
                     if ( isInvert == 0 )
                     {
                         if ( distance > score )
@@ -1190,7 +1208,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める。
+                    // 一番低いキャラクターを求める。
                     else
                     {
                         if ( distance < score )
@@ -1225,15 +1243,15 @@ public struct AITestJob : IJobParallelFor
                     int targetHate = 0;
                     if ( cData[index].personalHate.ContainsKey(targetHash) )
                     {
-                        targetHate += (int)cData[index].personalHate[targetHash];
+                        targetHate += cData[index].personalHate[targetHash];
                     }
                     // チームのヘイトはint2で確認する。
-                    int2 hateKey = new int2((int)cData[index].liveData.belong, targetHash);
+                    int2 hateKey = new((int)cData[index].liveData.belong, targetHash);
                     if ( tHate.ContainsKey(hateKey) )
                     {
                         targetHate += tHate[hateKey];
                     }
-                    // 一番高いやつを求める。
+                    // 一番高いキャラクターを求める。
                     if ( judgeData.isInvert == BitableBool.FALSE )
                     {
                         if ( targetHate > score )
@@ -1242,7 +1260,7 @@ public struct AITestJob : IJobParallelFor
                             index = i;
                         }
                     }
-                    // 一番低いやつを求める。
+                    // 一番低いキャラクターを求める。
                     else
                     {
                         if ( targetHate < score )
@@ -1252,6 +1270,7 @@ public struct AITestJob : IJobParallelFor
                         }
                     }
                 }
+
                 break;
 
             default:
@@ -1265,7 +1284,6 @@ public struct AITestJob : IJobParallelFor
 
     #endregion ターゲット判断処理
 
-
     /// <summary>
     /// 二つのチームが敵対しているかをチェックするメソッド。
     /// </summary>
@@ -1275,6 +1293,6 @@ public struct AITestJob : IJobParallelFor
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
     private bool CheckTeamHostility(int team1, int team2)
     {
-        return (relationMap[team1] & 1 << team2) > 0;
+        return (this.relationMap[team1] & (1 << team2)) > 0;
     }
 }

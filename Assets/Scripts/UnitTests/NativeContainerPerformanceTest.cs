@@ -1,14 +1,12 @@
+using NUnit.Framework;
 using System;
 using System.Collections.Generic;
-using NUnit.Framework;
-using UnityEngine;
-using UnityEngine.TestTools;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
-using Unity.Burst;
 using Unity.PerformanceTesting;
-using System.Linq;
+using UnityEngine;
 
 /// <summary>
 /// 様々なネイティブコンテナとマネージドコレクションのパフォーマンス比較テスト
@@ -53,7 +51,6 @@ public class NativeContainerPerformanceTest
     private long unsafePtrListSum; // UnsafePtrList用の合計値
     private long unsafePtrListJobSum; // UnsafePtrListのJob用の合計値
 
-
     // 測定回数設定
     private const int WarmupCount = 3;
     private const int MeasurementCount = 10;
@@ -63,21 +60,21 @@ public class NativeContainerPerformanceTest
     public void Setup()
     {
         // 標準コレクションの初期化
-        dictionary = new Dictionary<int, int>(ElementCount);
-        list = new List<int>(ElementCount);
-        regularArray = new int[ElementCount]; // 通常の配列の初期化
+        this.dictionary = new Dictionary<int, int>(ElementCount);
+        this.list = new List<int>(ElementCount);
+        this.regularArray = new int[ElementCount]; // 通常の配列の初期化
 
         // ネイティブコンテナの初期化
-        nativeList = new NativeList<int>(ElementCount, Allocator.Persistent);
-        unsafeList = new UnsafeList<int>(ElementCount, Allocator.Persistent);
-        parallelHashMap = new NativeParallelHashMap<int, int>(ElementCount, Allocator.Persistent);
-        nativeHashMap = new NativeHashMap<int, int>(ElementCount, Allocator.Persistent);
-        unsafeHashMap = new UnsafeHashMap<int, int>(ElementCount, Allocator.Persistent);
-        nativeArray = new NativeArray<int>(ElementCount, Allocator.Persistent);
+        this.nativeList = new NativeList<int>(ElementCount, Allocator.Persistent);
+        this.unsafeList = new UnsafeList<int>(ElementCount, Allocator.Persistent);
+        this.parallelHashMap = new NativeParallelHashMap<int, int>(ElementCount, Allocator.Persistent);
+        this.nativeHashMap = new NativeHashMap<int, int>(ElementCount, Allocator.Persistent);
+        this.unsafeHashMap = new UnsafeHashMap<int, int>(ElementCount, Allocator.Persistent);
+        this.nativeArray = new NativeArray<int>(ElementCount, Allocator.Persistent);
 
         // UnsafePtrList用の初期化
-        unsafePtrList = new UnsafePtrList<int>(ElementCount, Allocator.Persistent);
-        valueHolders = new NativeArray<IntPtr>(ElementCount, Allocator.Persistent);
+        this.unsafePtrList = new UnsafePtrList<int>(ElementCount, Allocator.Persistent);
+        this.valueHolders = new NativeArray<IntPtr>(ElementCount, Allocator.Persistent);
 
         unsafe
         {
@@ -89,9 +86,9 @@ public class NativeContainerPerformanceTest
                 // 値を設定
                 *(int*)ptr = i;
                 // 後で解放できるようにポインタを保存
-                valueHolders[i] = ptr;
+                this.valueHolders[i] = ptr;
                 // UnsafePtrListに追加
-                unsafePtrList.Add((int*)ptr);
+                this.unsafePtrList.Add((int*)ptr);
             }
         }
 
@@ -104,7 +101,7 @@ public class NativeContainerPerformanceTest
         // 正確性の検証 - 各コレクションの合計値をNativeArrayの結果と比較
         Debug.Log("正確性検証結果:");
 
-        if ( nativeArraySum == 0 )
+        if ( this.nativeArraySum == 0 )
         {
             Debug.Log("NativeArrayの合計値が0のため、検証をスキップします。連続アクセステストを実行してください。");
         }
@@ -114,85 +111,131 @@ public class NativeContainerPerformanceTest
 
             Debug.Log($"理論上の合計値: {expectedSum}");
 
-            if ( dictionarySum != nativeArraySum )
-                Debug.LogWarning($"不一致: Dictionary={dictionarySum}, NativeArray={nativeArraySum}");
+            if ( this.dictionarySum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: Dictionary={this.dictionarySum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( listSum != nativeArraySum )
-                Debug.LogWarning($"不一致: List={listSum}, NativeArray={nativeArraySum}");
+            if ( this.listSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: List={this.listSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( nativeListSum != nativeArraySum )
-                Debug.LogWarning($"不一致: NativeList={nativeListSum}, NativeArray={nativeArraySum}");
+            if ( this.nativeListSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: NativeList={this.nativeListSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( unsafeListSum != nativeArraySum )
-                Debug.LogWarning($"不一致: UnsafeList={unsafeListSum}, NativeArray={nativeArraySum}");
+            if ( this.unsafeListSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: UnsafeList={this.unsafeListSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( unsafePtrListSum != nativeArraySum )
-                Debug.LogWarning($"不一致: UnsafePtrList={unsafePtrListSum}, NativeArray={nativeArraySum}");
+            if ( this.unsafePtrListSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: UnsafePtrList={this.unsafePtrListSum}, NativeArray={this.nativeArraySum}");
+            }
 
+            if ( this.parallelHashMapSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: ParallelHashMap={this.parallelHashMapSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( parallelHashMapSum != nativeArraySum )
-                Debug.LogWarning($"不一致: ParallelHashMap={parallelHashMapSum}, NativeArray={nativeArraySum}");
+            if ( this.nativeHashMapSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: NativeHashMap={this.nativeHashMapSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( nativeHashMapSum != nativeArraySum )
-                Debug.LogWarning($"不一致: NativeHashMap={nativeHashMapSum}, NativeArray={nativeArraySum}");
+            if ( this.unsafeHashMapSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: UnsafeHashMap={this.unsafeHashMapSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( unsafeHashMapSum != nativeArraySum )
-                Debug.LogWarning($"不一致: UnsafeHashMap={unsafeHashMapSum}, NativeArray={nativeArraySum}");
+            if ( this.nativeArrayJobSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: (Job)NativeArray={this.nativeArrayJobSum}, NativeArray={this.nativeArraySum}");
+            }
 
+            if ( this.nativeListJobSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: (Job)NativeList={this.nativeListJobSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( nativeArrayJobSum != nativeArraySum )
-                Debug.LogWarning($"不一致: (Job)NativeArray={nativeArrayJobSum}, NativeArray={nativeArraySum}");
+            if ( this.unsafeListJobSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: (Job)UnsafeList={this.unsafeListJobSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( nativeListJobSum != nativeArraySum )
-                Debug.LogWarning($"不一致: (Job)NativeList={nativeListJobSum}, NativeArray={nativeArraySum}");
+            if ( this.unsafePtrListJobSum != 0 && this.unsafePtrListJobSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: (Job)UnsafePtrList={this.unsafePtrListJobSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( unsafeListJobSum != nativeArraySum )
-                Debug.LogWarning($"不一致: (Job)UnsafeList={unsafeListJobSum}, NativeArray={nativeArraySum}");
+            if ( this.parallelHashMapJobSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: (Job)ParallelHashMap={this.parallelHashMapJobSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( unsafePtrListJobSum != 0 && unsafePtrListJobSum != nativeArraySum )
-                Debug.LogWarning($"不一致: (Job)UnsafePtrList={unsafePtrListJobSum}, NativeArray={nativeArraySum}");
+            if ( this.nativeHashMapJobSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: (Job)NativeHashMap={this.nativeHashMapJobSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( parallelHashMapJobSum != nativeArraySum )
-                Debug.LogWarning($"不一致: (Job)ParallelHashMap={parallelHashMapJobSum}, NativeArray={nativeArraySum}");
+            if ( this.unsafeHashMapJobSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: (Job)UnsafeHashMap={this.unsafeHashMapJobSum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( nativeHashMapJobSum != nativeArraySum )
-                Debug.LogWarning($"不一致: (Job)NativeHashMap={nativeHashMapJobSum}, NativeArray={nativeArraySum}");
+            if ( this.regularArraySum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: RegularArray={this.regularArraySum}, NativeArray={this.nativeArraySum}");
+            }
 
-            if ( unsafeHashMapJobSum != nativeArraySum )
-                Debug.LogWarning($"不一致: (Job)UnsafeHashMap={unsafeHashMapJobSum}, NativeArray={nativeArraySum}");
+            if ( this.spanSum != this.nativeArraySum )
+            {
+                Debug.LogWarning($"不一致: Span={this.spanSum}, NativeArray={this.nativeArraySum}");
+            }
 
-
-
-            if ( regularArraySum != nativeArraySum )
-                Debug.LogWarning($"不一致: RegularArray={regularArraySum}, NativeArray={nativeArraySum}");
-
-            if ( spanSum != nativeArraySum )
-                Debug.LogWarning($"不一致: Span={spanSum}, NativeArray={nativeArraySum}");
-
-            if ( nativeArraySum != expectedSum )
-                Debug.LogWarning($"不一致: NativeArray={nativeArraySum}, 理論値={expectedSum}");
+            if ( this.nativeArraySum != expectedSum )
+            {
+                Debug.LogWarning($"不一致: NativeArray={this.nativeArraySum}, 理論値={expectedSum}");
+            }
             else
-                Debug.Log($"一致: NativeArrayの合計値 {nativeArraySum} は理論値と一致しています");
+            {
+                Debug.Log($"一致: NativeArrayの合計値 {this.nativeArraySum} は理論値と一致しています");
+            }
         }
 
         // ネイティブコンテナの解放
-        if ( nativeList.IsCreated )
-            nativeList.Dispose();
+        if ( this.nativeList.IsCreated )
+        {
+            this.nativeList.Dispose();
+        }
 
-        if ( unsafeList.IsCreated )
-            unsafeList.Dispose();
+        if ( this.unsafeList.IsCreated )
+        {
+            this.unsafeList.Dispose();
+        }
 
-        if ( parallelHashMap.IsCreated )
-            parallelHashMap.Dispose();
+        if ( this.parallelHashMap.IsCreated )
+        {
+            this.parallelHashMap.Dispose();
+        }
 
-        if ( nativeHashMap.IsCreated )
-            nativeHashMap.Dispose();
+        if ( this.nativeHashMap.IsCreated )
+        {
+            this.nativeHashMap.Dispose();
+        }
 
-        if ( unsafeHashMap.IsCreated )
-            unsafeHashMap.Dispose();
+        if ( this.unsafeHashMap.IsCreated )
+        {
+            this.unsafeHashMap.Dispose();
+        }
 
-        if ( nativeArray.IsCreated )
-            nativeArray.Dispose();
+        if ( this.nativeArray.IsCreated )
+        {
+            this.nativeArray.Dispose();
+        }
 
         Debug.Log("All resources disposed");
     }
@@ -205,12 +248,13 @@ public class NativeContainerPerformanceTest
         Measure.Method(() =>
         {
             long sum = 0;
-            for ( int i = 0; i < unsafePtrList.Length; i++ )
+            for ( int i = 0; i < this.unsafePtrList.Length; i++ )
             {
                 // ポインタから値を取得して合計
-                sum += *(int*)unsafePtrList[i];
+                sum += *this.unsafePtrList[i];
             }
-            unsafePtrListSum = sum;
+
+            this.unsafePtrListSum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -224,18 +268,19 @@ public class NativeContainerPerformanceTest
         // 測定前にデータを準備
         for ( int i = 0; i < ElementCount; i++ )
         {
-            regularArray[i] = i;
+            this.regularArray[i] = i;
         }
 
         Measure.Method(() =>
         {
             long sum = 0;
             // より多くの繰り返し (例: 10回) で計測値を向上
-            for ( int i = 0; i < regularArray.Length; i++ )
+            for ( int i = 0; i < this.regularArray.Length; i++ )
             {
-                sum += regularArray[i];
+                sum += this.regularArray[i];
             }
-            regularArraySum = sum; // 平均値を保存
+
+            this.regularArraySum = sum; // 平均値を保存
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -249,19 +294,20 @@ public class NativeContainerPerformanceTest
         // 測定前にデータを準備（Spanは通常の配列から作成）
         for ( int i = 0; i < ElementCount; i++ )
         {
-            regularArray[i] = i;
+            this.regularArray[i] = i;
         }
 
         Measure.Method(() =>
         {
-            Span<int> span = regularArray.AsSpan();
+            Span<int> span = this.regularArray.AsSpan();
             long sum = 0;
             // より多くの繰り返し (例: 10回) で計測値を向上
             for ( int i = 0; i < span.Length; i++ )
             {
                 sum += span[i];
             }
-            spanSum = sum; // 平均値を保存
+
+            this.spanSum = sum; // 平均値を保存
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -273,20 +319,21 @@ public class NativeContainerPerformanceTest
     public void SequentialAccess_Dictionary()
     {
         // 測定前にデータを準備
-        dictionary.Clear();
+        this.dictionary.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            dictionary[i] = i;
+            this.dictionary[i] = i;
         }
 
         Measure.Method(() =>
         {
             long sum = 0;
-            for ( int i = 0; i < dictionary.Count; i++ )
+            for ( int i = 0; i < this.dictionary.Count; i++ )
             {
-                sum += dictionary[i];
+                sum += this.dictionary[i];
             }
-            dictionarySum = sum;
+
+            this.dictionarySum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -297,20 +344,21 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void SequentialAccess_List()
     {
-        list.Clear();
+        this.list.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            list.Add(i);
+            this.list.Add(i);
         }
 
         Measure.Method(() =>
         {
             long sum = 0;
-            for ( int i = 0; i < list.Count; i++ )
+            for ( int i = 0; i < this.list.Count; i++ )
             {
-                sum += list[i];
+                sum += this.list[i];
             }
-            listSum = sum;
+
+            this.listSum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -321,20 +369,21 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void SequentialAccess_NativeList()
     {
-        nativeList.Clear();
+        this.nativeList.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            nativeList.Add(i);
+            this.nativeList.Add(i);
         }
 
         Measure.Method(() =>
         {
             long sum = 0;
-            for ( int i = 0; i < nativeList.Length; i++ )
+            for ( int i = 0; i < this.nativeList.Length; i++ )
             {
-                sum += nativeList[i];
+                sum += this.nativeList[i];
             }
-            nativeListSum = sum;
+
+            this.nativeListSum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -345,22 +394,22 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void SequentialAccess_UnsafeList()
     {
-        unsafeList.Clear();
+        this.unsafeList.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            unsafeList.Add(i);
+            this.unsafeList.Add(i);
         }
 
         Measure.Method(() =>
         {
             long sum = 0;
-            for ( int i = 0; i < unsafeList.Length; i++ )
+            for ( int i = 0; i < this.unsafeList.Length; i++ )
             {
-                sum += unsafeList[i];
+                sum += this.unsafeList[i];
             }
             // 記録用フィールド変数に記録。
             // コンパイラの過剰最適化予防を兼ねて値を使用し、最後に合計値の精度チェックに使用。
-            unsafeListSum = sum;
+            this.unsafeListSum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -371,10 +420,10 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void SequentialAccess_ParallelHashMap()
     {
-        parallelHashMap.Clear();
+        this.parallelHashMap.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            parallelHashMap.Add(i, i);
+            this.parallelHashMap.Add(i, i);
         }
 
         Measure.Method(() =>
@@ -382,12 +431,13 @@ public class NativeContainerPerformanceTest
             long sum = 0;
             for ( int i = 0; i < ElementCount; i++ )
             {
-                if ( parallelHashMap.TryGetValue(i, out int value) )
+                if ( this.parallelHashMap.TryGetValue(i, out int value) )
                 {
                     sum += value;
                 }
             }
-            parallelHashMapSum = sum;
+
+            this.parallelHashMapSum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -398,23 +448,24 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void SequentialAccess_NativeHashMap()
     {
-        nativeHashMap.Clear();
+        this.nativeHashMap.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            nativeHashMap.Add(i, i);
+            this.nativeHashMap.Add(i, i);
         }
 
         Measure.Method(() =>
         {
             long sum = 0;
-            for ( int i = 0; i < nativeHashMap.Count; i++ )
+            for ( int i = 0; i < this.nativeHashMap.Count; i++ )
             {
-                if ( nativeHashMap.TryGetValue(i, out int value) )
+                if ( this.nativeHashMap.TryGetValue(i, out int value) )
                 {
                     sum += value;
                 }
             }
-            nativeHashMapSum = sum;
+
+            this.nativeHashMapSum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -425,23 +476,24 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void SequentialAccess_UnsafeHashMap()
     {
-        unsafeHashMap.Clear();
+        this.unsafeHashMap.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            unsafeHashMap.Add(i, i);
+            this.unsafeHashMap.Add(i, i);
         }
 
         Measure.Method(() =>
         {
             long sum = 0;
-            for ( int i = 0; i < unsafeHashMap.Count; i++ )
+            for ( int i = 0; i < this.unsafeHashMap.Count; i++ )
             {
-                if ( unsafeHashMap.TryGetValue(i, out int value) )
+                if ( this.unsafeHashMap.TryGetValue(i, out int value) )
                 {
                     sum += value;
                 }
             }
-            unsafeHashMapSum = sum;
+
+            this.unsafeHashMapSum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -454,17 +506,18 @@ public class NativeContainerPerformanceTest
     {
         for ( int i = 0; i < ElementCount; i++ )
         {
-            nativeArray[i] = i;
+            this.nativeArray[i] = i;
         }
 
         Measure.Method(() =>
         {
             long sum = 0;
-            for ( int i = 0; i < nativeArray.Length; i++ )
+            for ( int i = 0; i < this.nativeArray.Length; i++ )
             {
-                sum += nativeArray[i];
+                sum += this.nativeArray[i];
             }
-            nativeArraySum = sum;
+
+            this.nativeArraySum = sum;
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -485,12 +538,12 @@ public class NativeContainerPerformanceTest
 
             var job = new UnsafePtrListSumJob
             {
-                Input = unsafePtrList,
+                Input = this.unsafePtrList,
                 Result = results
             };
 
             job.Schedule().Complete();
-            unsafePtrListJobSum = results[0];
+            this.unsafePtrListJobSum = results[0];
             results.Dispose();
         })
         .WarmupCount(WarmupCount)
@@ -505,7 +558,7 @@ public class NativeContainerPerformanceTest
         // 測定前にデータを準備
         for ( int i = 0; i < ElementCount; i++ )
         {
-            nativeArray[i] = i;
+            this.nativeArray[i] = i;
         }
 
         Measure.Method(() =>
@@ -514,12 +567,12 @@ public class NativeContainerPerformanceTest
 
             var job = new NativeArraySumJob
             {
-                Input = nativeArray,
+                Input = this.nativeArray,
                 Result = results
             };
 
             job.Schedule().Complete();
-            nativeArrayJobSum = job.Result[0];
+            this.nativeArrayJobSum = job.Result[0];
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -530,10 +583,10 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void JobSystem_NativeList()
     {
-        nativeList.Clear();
+        this.nativeList.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            nativeList.Add(i);
+            this.nativeList.Add(i);
         }
 
         Measure.Method(() =>
@@ -542,12 +595,12 @@ public class NativeContainerPerformanceTest
 
             var job = new NativeListSumJob
             {
-                Input = nativeList,
+                Input = this.nativeList,
                 Result = results
             };
 
             job.Schedule().Complete();
-            nativeListJobSum = job.Result[0];
+            this.nativeListJobSum = job.Result[0];
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -558,10 +611,10 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void JobSystem_UnsafeList()
     {
-        unsafeList.Clear();
+        this.unsafeList.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            unsafeList.Add(i);
+            this.unsafeList.Add(i);
         }
 
         Measure.Method(() =>
@@ -570,7 +623,7 @@ public class NativeContainerPerformanceTest
 
             var job = new UnsafeListSumJob
             {
-                Input = unsafeList,
+                Input = this.unsafeList,
                 Result = results
             };
 
@@ -578,7 +631,7 @@ public class NativeContainerPerformanceTest
             job.Schedule().Complete();
 
             // 精度チェックのために合計値を取得
-            unsafeListJobSum = job.Result[0];
+            this.unsafeListJobSum = job.Result[0];
         })
         .WarmupCount(WarmupCount)
         .MeasurementCount(MeasurementCount)
@@ -589,10 +642,10 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void JobSystem_ParallelHashMap()
     {
-        parallelHashMap.Clear();
+        this.parallelHashMap.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            parallelHashMap.Add(i, i);
+            this.parallelHashMap.Add(i, i);
         }
 
         Measure.Method(() =>
@@ -601,7 +654,7 @@ public class NativeContainerPerformanceTest
 
             var job = new ParallelHashMapSumJob
             {
-                Input = parallelHashMap,
+                Input = this.parallelHashMap,
                 Keys = new NativeArray<int>(ElementCount, Allocator.TempJob),
                 Result = results
             };
@@ -613,7 +666,7 @@ public class NativeContainerPerformanceTest
             }
 
             job.Schedule().Complete();
-            parallelHashMapJobSum = job.Result[0];
+            this.parallelHashMapJobSum = job.Result[0];
             job.Keys.Dispose();
         })
         .WarmupCount(WarmupCount)
@@ -625,10 +678,10 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void JobSystem_NativeHashMap()
     {
-        nativeHashMap.Clear();
+        this.nativeHashMap.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            nativeHashMap.Add(i, i);
+            this.nativeHashMap.Add(i, i);
         }
 
         Measure.Method(() =>
@@ -637,7 +690,7 @@ public class NativeContainerPerformanceTest
 
             var job = new NativeHashMapSumJob
             {
-                Input = nativeHashMap,
+                Input = this.nativeHashMap,
                 Keys = new NativeArray<int>(ElementCount, Allocator.TempJob),
                 Result = results
             };
@@ -649,7 +702,7 @@ public class NativeContainerPerformanceTest
             }
 
             job.Schedule().Complete();
-            nativeHashMapJobSum = job.Result[0];
+            this.nativeHashMapJobSum = job.Result[0];
             job.Keys.Dispose();
         })
         .WarmupCount(WarmupCount)
@@ -661,10 +714,10 @@ public class NativeContainerPerformanceTest
     [Test, Performance]
     public void JobSystem_UnsafeHashMap()
     {
-        unsafeHashMap.Clear();
+        this.unsafeHashMap.Clear();
         for ( int i = 0; i < ElementCount; i++ )
         {
-            unsafeHashMap.Add(i, i);
+            this.unsafeHashMap.Add(i, i);
         }
 
         Measure.Method(() =>
@@ -673,7 +726,7 @@ public class NativeContainerPerformanceTest
 
             var job = new UnsafeHashMapSumJob
             {
-                Input = unsafeHashMap,
+                Input = this.unsafeHashMap,
                 Keys = new NativeArray<int>(ElementCount, Allocator.TempJob),
                 Result = results
             };
@@ -685,7 +738,7 @@ public class NativeContainerPerformanceTest
             }
 
             job.Schedule().Complete();
-            unsafeHashMapJobSum = job.Result[0];
+            this.unsafeHashMapJobSum = job.Result[0];
             job.Keys.Dispose();
         })
         .WarmupCount(WarmupCount)
@@ -735,13 +788,14 @@ public class NativeContainerPerformanceTest
         public void Execute()
         {
             long sum = 0;
-            for ( int i = 0; i < Input.Length; i++ )
+            for ( int i = 0; i < this.Input.Length; i++ )
             {
                 // ポインタから値を読み取って合計
-                sum += *(Input[i]);
+                sum += *this.Input[i];
 
             }
-            Result[0] = sum;
+
+            this.Result[0] = sum;
         }
     }
 
@@ -754,11 +808,12 @@ public class NativeContainerPerformanceTest
         public void Execute()
         {
             long sum = 0;
-            for ( int i = 0; i < Input.Length; i++ )
+            for ( int i = 0; i < this.Input.Length; i++ )
             {
-                sum += Input[i];
+                sum += this.Input[i];
             }
-            Result[0] = sum;
+
+            this.Result[0] = sum;
         }
     }
 
@@ -771,11 +826,12 @@ public class NativeContainerPerformanceTest
         public void Execute()
         {
             long sum = 0;
-            for ( int i = 0; i < Input.Length; i++ )
+            for ( int i = 0; i < this.Input.Length; i++ )
             {
-                sum += Input[i];
+                sum += this.Input[i];
             }
-            Result[0] = sum;
+
+            this.Result[0] = sum;
         }
     }
 
@@ -788,11 +844,12 @@ public class NativeContainerPerformanceTest
         public void Execute()
         {
             long sum = 0;
-            for ( int i = 0; i < Input.Length; i++ )
+            for ( int i = 0; i < this.Input.Length; i++ )
             {
-                sum += Input[i];
+                sum += this.Input[i];
             }
-            Result[0] = sum;
+
+            this.Result[0] = sum;
         }
     }
 
@@ -806,14 +863,15 @@ public class NativeContainerPerformanceTest
         public void Execute()
         {
             long sum = 0;
-            for ( int i = 0; i < Keys.Length; i++ )
+            for ( int i = 0; i < this.Keys.Length; i++ )
             {
-                if ( Input.TryGetValue(Keys[i], out int value) )
+                if ( this.Input.TryGetValue(this.Keys[i], out int value) )
                 {
                     sum += value;
                 }
             }
-            Result[0] = sum;
+
+            this.Result[0] = sum;
         }
     }
 
@@ -827,14 +885,15 @@ public class NativeContainerPerformanceTest
         public void Execute()
         {
             long sum = 0;
-            for ( int i = 0; i < Keys.Length; i++ )
+            for ( int i = 0; i < this.Keys.Length; i++ )
             {
-                if ( Input.TryGetValue(Keys[i], out int value) )
+                if ( this.Input.TryGetValue(this.Keys[i], out int value) )
                 {
                     sum += value;
                 }
             }
-            Result[0] = sum;
+
+            this.Result[0] = sum;
         }
     }
 
@@ -848,14 +907,15 @@ public class NativeContainerPerformanceTest
         public void Execute()
         {
             long sum = 0;
-            for ( int i = 0; i < Keys.Length; i++ )
+            for ( int i = 0; i < this.Keys.Length; i++ )
             {
-                if ( Input.TryGetValue(Keys[i], out int value) )
+                if ( this.Input.TryGetValue(this.Keys[i], out int value) )
                 {
                     sum += value;
                 }
             }
-            Result[0] = sum;
+
+            this.Result[0] = sum;
         }
     }
 
@@ -869,9 +929,9 @@ public class NativeContainerPerformanceTest
         {
             // 各スレッドからのアクセスを同期するためにアトミック加算を使用
             // NativeArrayの値を結果配列に足していく
-            for ( int i = 0; i < Input.Length; i++ )
+            for ( int i = 0; i < this.Input.Length; i++ )
             {
-                Result[0] += Input[i];
+                this.Result[0] += this.Input[i];
             }
         }
     }

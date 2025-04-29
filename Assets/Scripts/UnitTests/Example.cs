@@ -1,11 +1,6 @@
-using System.Collections;
 using NUnit.Framework;
-using UnityEngine;
+using System.Collections;
 using UnityEngine.TestTools;
-using Unity.Collections.LowLevel.Unsafe;
-using Unity.Collections;
-using System.Collections.Generic;
-using System;
 
 public class Example
 {

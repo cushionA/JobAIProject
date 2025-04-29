@@ -1,24 +1,24 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Data.SqlTypes;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
-using static Unity.Collections.AllocatorManager;
 
 /// <summary>
-/// ゲームオブジェクトのGetHashCode()をキーとし、高効率に管理するデータ辞書
-/// UnityではGetHashCode()がGetInstanceID()と同じ値を返すため、一意性が保証されている。
-/// UnsafeListを使用してGC負荷を削減
-/// 正直T2は、特化することを考えるとジェネリック型にする意味あんまりない（そのゲームのキャラクターコントローラーの型だから）いずれその方針で最適化する
+/// ゲームオブジェクトのGetHashCode()をキーとして管理するデータ辞書
+/// UnityではGetHashCode()がGetInstanceID()と同じ値を返すため、キーの一意性が保証されている。
+/// 内部でのデータ保持にUnsafeListを使用してGC負荷を削減
+/// 
+/// CharaDataDic<T>との違いは、T2を追加して、キャラコントローラーも一緒に操作できるようにしたということだけ。
+/// 自作ゲーム用にT2を追加して特化させたのがCharacterDataDictionary<T1, T2>。
+/// あとT2はジェネリック型にする意味があまりない（そのゲームで使うキャラクターコントローラーの型だから）いずれこの方針で最適化する
 /// </summary>
 /// <typeparam name="T1">格納する主データの型（JobSystemを意識したunmanaged制約付き）</typeparam>
 /// <typeparam name="T2">格納する副データの型（Unmanaged制約なしのキャラクターコントローラー）</typeparam>
 public class CharacterDataDictionary<T1, T2> : IDisposable
-    where T1 : unmanaged
+    where T1 : unmanaged, ILogicalDelate
     where T2 : class
 {
     /// <summary>
@@ -48,39 +48,79 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
         public bool IsOccupied;
     }
 
-    // 内部データ構造（UnsafeListベース）
-    private UnsafeList<int> _buckets;           // バケット配列（各要素はエントリへのインデックス、-1は空）
-    private UnsafeList<Entry> _entries;         // エントリの配列
-    private UnsafeList<T1> _values1;            // 実際のデータT1を格納する配列
-    private T2[] _values2;                      // 実際のデータT2を格納する配列（managed型のため通常の配列）
-    private UnsafeList<int> _indexForValue;     // 値インデックス→エントリインデックスの逆引き
+    /// <summary>
+    /// バケット配列（各要素はエントリへのインデックス、-1は空）
+    /// </summary>
+    private UnsafeList<int> _buckets;
 
-    private int _count;                  // 使用中のエントリ数
-    private int _freeListHead;           // 削除済みエントリの再利用リスト先頭
-    private int _freeCount;              // 再利用可能なエントリ数
+    /// <summary>
+    /// エントリのリスト
+    /// </summary>
+    private UnsafeList<Entry> _entries;
 
-    private bool _isDisposed;            // 解放済みフラグ
-    private readonly Allocator _allocator; // メモリアロケータ
+    /// <summary>
+    /// 実際のデータT1を格納するリスト
+    /// </summary>
+    private UnsafeList<T1> _values1;
 
-    // 素数テーブル - よく使われるサイズに近い素数
+    /// <summary>
+    /// 実際のデータT2を格納する配列（managed型のため通常の配列）
+    /// </summary>
+    private T2[] _values2;
+
+    /// <summary>
+    /// 使用中のエントリ数
+    /// </summary>
+    private int _count;
+
+    /// <summary>
+    /// 削除済みエントリの再利用リスト先頭
+    /// </summary>
+    private int _freeListHead;
+
+    /// <summary>
+    /// 再利用可能なエントリ数
+    /// </summary>
+    private int _freeCount;
+
+    /// <summary>
+    /// 解放済みフラグ
+    /// </summary>
+    private bool _isDisposed;
+
+    /// <summary>
+    /// メモリの確保のタイプ
+    /// </summary>
+    private readonly Allocator _allocator;
+
+    /// <summary>
+    /// 素数テーブル
+    /// リサイズの際に使用する。
+    /// </summary>
     private static readonly int[] PrimeSizes = {
         17, 37, 79, 163, 331, 673, 1361, 2729, 5471, 10949, 21911, 43853,
         87719, 175447, 350899, 701819, 1403641, 2807303, 5614657, 11229331
     };
 
-    // 定数
-    private const int DEFAULT_CAPACITY = 1031;    // デフォルト容量（素数）
-    private const float LOAD_FACTOR = 0.75f;      // 負荷係数（この値を超えるとリサイズ）
+    /// <summary>
+    /// 初期サイズ定数
+    /// </summary>
+    private const int DEFAULT_CAPACITY = 1031;
+
+    /// <summary>
+    /// 負荷係数（収容済み要素の割合がこの値を超えるとリサイズ）
+    /// </summary>
+    private const float LOAD_FACTOR = 0.75f;
 
     /// <summary>
     /// 格納されている要素数
     /// </summary>
-    public int Count => _count - _freeCount;
+    public int Count => this._count - this._freeCount;
 
     /// <summary>
     /// バケットの容量
     /// </summary>
-    public int Capacity => _entries.Length;
+    public int Capacity => this._entries.Length;
 
     #region T1インデクサ
 
@@ -92,13 +132,18 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
         get
         {
             if ( gameObject == null )
+            {
                 throw new ArgumentNullException(nameof(gameObject));
+            }
 
-            if ( TryGetValue(gameObject, out T1 value1, out _) )
+            if ( this.TryGetValue(gameObject, out T1 value1, out _) )
+            {
                 return value1;
+            }
+
             throw new KeyNotFoundException($"GameObject {gameObject.name} not found in store");
         }
-        set => Add(gameObject, value);  // このインデクサからの追加はT1のみの追加になる点に注意
+        set => this.Add(gameObject, value);  // このインデクサからの追加はT1のみの追加になる点に注意
     }
 
     /// <summary>
@@ -108,34 +153,39 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     {
         get
         {
-            if ( TryGetValueByHash(hashOrInstanceId, out T1 value1, out _) )
+            if ( this.TryGetValueByHash(hashOrInstanceId, out T1 value1, out _) )
+            {
                 return value1;
-            throw new KeyNotFoundException($"HashCode/InstanceID {hashOrInstanceId} not found in store");
+            }
+
+            throw new KeyNotFoundException($"HashCode/InstanceID {hashOrInstanceId.ToString()} not found in store");
         }
-        set => AddByHash(hashOrInstanceId, value);  // このインデクサからの追加はT1のみの追加になる点に注意
+        set => this.AddByHash(hashOrInstanceId, value);  // このインデクサからの追加はT1のみの追加になる点に注意
     }
 
     /// <summary>
     /// インデクサ - 値インデックスからの直接アクセス (T1)
     /// </summary>
 
-
     public T1 this[int valueIndex, bool isValueIndex]
     {
         get
         {
             if ( !isValueIndex )
+            {
                 throw new ArgumentException("Second parameter must be true when accessing by value index");
+            }
 
-            if ( valueIndex < 0 || valueIndex >= _count || !IsValidIndex(valueIndex) )
+            if ( valueIndex < 0 || valueIndex >= this._count || !this.IsValidIndex(valueIndex) )
+            {
                 throw new ArgumentOutOfRangeException(nameof(valueIndex));
+            }
 
-            return _values1[valueIndex];
+            return this._values1[valueIndex];
         }
     }
 
     #endregion
-
 
     /// <summary>
     /// コンストラクタ
@@ -145,34 +195,32 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public CharacterDataDictionary(int capacity = DEFAULT_CAPACITY, Allocator allocator = Allocator.Persistent)
     {
         // アロケータ保存
-        _allocator = allocator;
+        this._allocator = allocator;
 
         // 指定容量以上の最小の素数を選択
-        int primeCapacity = GetNextPrimeSize(capacity);
+        int primeCapacity = this.GetNextPrimeSize(capacity);
 
         // UnsafeListの初期化
-        _buckets = new UnsafeList<int>(primeCapacity, allocator);
-        _entries = new UnsafeList<Entry>(primeCapacity, allocator);
-        _values1 = new UnsafeList<T1>(primeCapacity, allocator);
-        _values2 = new T2[primeCapacity]; // managed型のため通常の配列を使用
-        _indexForValue = new UnsafeList<int>(primeCapacity, allocator);
+        this._buckets = new UnsafeList<int>(primeCapacity, allocator);
+        this._entries = new UnsafeList<Entry>(primeCapacity, allocator);
+        this._values1 = new UnsafeList<T1>(primeCapacity, allocator);
+        this._values2 = new T2[primeCapacity]; // managed型のため通常の配列を使用
 
         // バケットリストの容量確保と-1で初期化
-        _buckets.Resize(primeCapacity, NativeArrayOptions.ClearMemory);
-        for ( int i = 0; i < _buckets.Length; i++ )
+        this._buckets.Resize(primeCapacity, NativeArrayOptions.ClearMemory);
+        for ( int i = 0; i < this._buckets.Length; i++ )
         {
-            _buckets[i] = -1;
+            this._buckets[i] = -1;
         }
 
         // 他のリストの容量を確保
-        _entries.Capacity = primeCapacity;
-        _values1.Capacity = primeCapacity;
+        this._entries.Capacity = primeCapacity;
+        this._values1.Capacity = primeCapacity;
         // _values2は既に配列で初期化済み
-        _indexForValue.Capacity = primeCapacity;
 
-        _freeListHead = -1;
-        _count = 0;
-        _freeCount = 0;
+        this._freeListHead = -1;
+        this._count = 0;
+        this._freeCount = 0;
     }
 
     /// <summary>
@@ -182,10 +230,12 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public int Add(GameObject obj, T1 data)
     {
         if ( obj == null )
+        {
             throw new ArgumentNullException(nameof(obj));
+        }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return AddByHash(obj.GetHashCode(), data);
+        return this.AddByHash(obj.GetHashCode(), data);
     }
 
     /// <summary>
@@ -195,10 +245,12 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public int Add(GameObject obj, T1 data1, T2 data2)
     {
         if ( obj == null )
+        {
             throw new ArgumentNullException(nameof(obj));
+        }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return AddByHash(obj.GetHashCode(), data1, data2);
+        return this.AddByHash(obj.GetHashCode(), data1, data2);
     }
 
     /// <summary>
@@ -208,7 +260,7 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public int AddByHash(int hashCode, T1 data)
     {
         // T2にはデフォルト値を設定
-        return AddByHash(hashCode, data, default);
+        return this.AddByHash(hashCode, data, default);
     }
 
     /// <summary>
@@ -218,25 +270,25 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public int AddByHash(int hashCode, T1 data1, T2 data2)
     {
         // 負荷係数チェック - 必要に応じてリサイズ
-        if ( (_count - _freeCount) >= _entries.Length * LOAD_FACTOR )
+        if ( (this._count - this._freeCount) >= this._entries.Length * LOAD_FACTOR )
         {
-            Resize(_entries.Length * 2);
+            this.Resize(this._entries.Length * 2);
         }
 
         // バケットインデックスを計算（単純モジュロ法）
-        int bucketIndex = GetBucketIndex(hashCode);
+        int bucketIndex = this.GetBucketIndex(hashCode);
 
         // 同じキーが既に存在するか検索
-        int entryIndex = _buckets[bucketIndex];
+        int entryIndex = this._buckets[bucketIndex];
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
             // ハッシュコードのみでチェック（GetInstanceID()と同じ値なので一意性が保証される）
             if ( entry.HashCode == hashCode )
             {
                 // 既存エントリを更新
-                _values1[entry.ValueIndex] = data1;
-                _values2[entry.ValueIndex] = data2;
+                this._values1[entry.ValueIndex] = data1;
+                this._values2[entry.ValueIndex] = data2;
                 return entry.ValueIndex;
             }
 
@@ -246,67 +298,59 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
 
         // 新しいエントリ用のインデックスを確保
         int newIndex;
-        if ( _freeCount > 0 )
+        if ( this._freeCount > 0 )
         {
             // 削除済みエントリを再利用
-            newIndex = _freeListHead;
-            _freeListHead = _entries.ElementAt(newIndex).NextInBucket;
-            _freeCount--;
+            newIndex = this._freeListHead;
+            this._freeListHead = this._entries.ElementAt(newIndex).NextInBucket;
+            this._freeCount--;
         }
         else
         {
             // 新しいスロットを使用
-            if ( _count == _entries.Length )
+            if ( this._count == this._entries.Length )
             {
-                Resize(_entries.Length * 2);
-                bucketIndex = GetBucketIndex(hashCode);
+                this.Resize(this._entries.Length * 2);
+                bucketIndex = this.GetBucketIndex(hashCode);
             }
-            newIndex = _count;
-            _count++;
+
+            newIndex = this._count;
+            this._count++;
         }
 
         // エントリと値のリストが十分な大きさになるよう拡張
-        EnsureCapacity(newIndex);
+        this.EnsureCapacity(newIndex);
 
         // 新しいエントリの設定
         Entry newEntry;
         newEntry.HashCode = hashCode;
         newEntry.ValueIndex = newIndex;
-        newEntry.NextInBucket = _buckets[bucketIndex];
+        newEntry.NextInBucket = this._buckets[bucketIndex];
         newEntry.IsOccupied = true;
 
         // UnsafeListの更新
-        if ( newIndex < _entries.Length )
+        if ( newIndex < this._entries.Length )
         {
-            _entries[newIndex] = newEntry;
+            this._entries[newIndex] = newEntry;
         }
         else
         {
-            _entries.Add(newEntry);
+            this._entries.Add(newEntry);
         }
 
-        if ( newIndex < _values1.Length )
+        if ( newIndex < this._values1.Length )
         {
-            _values1[newIndex] = data1;
+            this._values1[newIndex] = data1;
         }
         else
         {
-            _values1.Add(data1);
+            this._values1.Add(data1);
         }
 
         // T2はmanaged型の配列なので単純に代入
-        _values2[newIndex] = data2;
+        this._values2[newIndex] = data2;
 
-        if ( newIndex < _indexForValue.Length )
-        {
-            _indexForValue[newIndex] = newIndex;
-        }
-        else
-        {
-            _indexForValue.Add(newIndex);
-        }
-
-        _buckets[bucketIndex] = newIndex;
+        this._buckets[bucketIndex] = newIndex;
 
         return newIndex;
     }
@@ -318,30 +362,24 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     private void EnsureCapacity(int index)
     {
         // 必要に応じて各リストの容量を拡張
-        if ( _entries.Capacity <= index )
+        if ( this._entries.Capacity <= index )
         {
-            int newCapacity = Math.Max(_entries.Capacity * 2, index + 1);
-            _entries.Capacity = newCapacity;
+            int newCapacity = Math.Max(this._entries.Capacity * 2, index + 1);
+            this._entries.Capacity = newCapacity;
         }
 
-        if ( _values1.Capacity <= index )
+        if ( this._values1.Capacity <= index )
         {
-            int newCapacity = Math.Max(_values1.Capacity * 2, index + 1);
-            _values1.Capacity = newCapacity;
+            int newCapacity = Math.Max(this._values1.Capacity * 2, index + 1);
+            this._values1.Capacity = newCapacity;
         }
 
-        if ( _values2.Length <= index )
+        if ( this._values2.Length <= index )
         {
-            int newCapacity = Math.Max(_values2.Length * 2, index + 1);
+            int newCapacity = Math.Max(this._values2.Length * 2, index + 1);
             T2[] newArray = new T2[newCapacity];
-            Array.Copy(_values2, newArray, _values2.Length);
-            _values2 = newArray;
-        }
-
-        if ( _indexForValue.Capacity <= index )
-        {
-            int newCapacity = Math.Max(_indexForValue.Capacity * 2, index + 1);
-            _indexForValue.Capacity = newCapacity;
+            Array.Copy(this._values2, newArray, this._values2.Length);
+            this._values2 = newArray;
         }
     }
 
@@ -351,7 +389,7 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsValidIndex(int index)
     {
-        return index >= 0 && index < _count && _entries[index].IsOccupied;
+        return index >= 0 && index < this._count && this._entries[index].IsOccupied;
     }
 
     /// <summary>
@@ -360,12 +398,12 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ref T1 GetData1ByIndex(int index)
     {
-        if ( !IsValidIndex(index) )
+        if ( !this.IsValidIndex(index) )
         {
             throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry");
         }
 
-        return ref _values1.ElementAt(index);
+        return ref this._values1.ElementAt(index);
     }
 
     /// <summary>
@@ -374,12 +412,12 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public T2 GetData2ByIndex(int index)
     {
-        if ( !IsValidIndex(index) )
+        if ( !this.IsValidIndex(index) )
         {
             throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry");
         }
 
-        return _values2[index];
+        return this._values2[index];
     }
 
     /// <summary>
@@ -388,12 +426,12 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void SetData2ByIndex(int index, T2 value)
     {
-        if ( !IsValidIndex(index) )
+        if ( !this.IsValidIndex(index) )
         {
             throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry");
         }
 
-        _values2[index] = value;
+        this._values2[index] = value;
     }
 
     /// <summary>
@@ -411,7 +449,7 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
         }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return TryGetValueByHash(obj.GetHashCode(), out data1, out data2, out index);
+        return this.TryGetValueByHash(obj.GetHashCode(), out data1, out data2, out index);
     }
 
     /// <summary>
@@ -428,7 +466,7 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
         }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return TryGetValueByHash(obj.GetHashCode(), out data1, out index);
+        return this.TryGetValueByHash(obj.GetHashCode(), out data1, out index);
     }
 
     /// <summary>
@@ -445,7 +483,7 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
         }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return TryGetValueByHash(obj.GetHashCode(), out data2, out index);
+        return this.TryGetValueByHash(obj.GetHashCode(), out data2, out index);
     }
 
     /// <summary>
@@ -454,19 +492,20 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetValueByHash(int hashCode, out T1 data1, out T2 data2, out int index)
     {
-        int bucketIndex = GetBucketIndex(hashCode);
-        int entryIndex = _buckets[bucketIndex];
+        int bucketIndex = this.GetBucketIndex(hashCode);
+        int entryIndex = this._buckets[bucketIndex];
 
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
             if ( entry.HashCode == hashCode )
             {
-                data1 = _values1[entry.ValueIndex];
-                data2 = _values2[entry.ValueIndex];
+                data1 = this._values1[entry.ValueIndex];
+                data2 = this._values2[entry.ValueIndex];
                 index = entry.ValueIndex;
                 return true;
             }
+
             entryIndex = entry.NextInBucket;
         }
 
@@ -482,18 +521,19 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetValueByHash(int hashCode, out T1 data1, out int index)
     {
-        int bucketIndex = GetBucketIndex(hashCode);
-        int entryIndex = _buckets[bucketIndex];
+        int bucketIndex = this.GetBucketIndex(hashCode);
+        int entryIndex = this._buckets[bucketIndex];
 
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
             if ( entry.HashCode == hashCode )
             {
-                data1 = _values1[entry.ValueIndex];
+                data1 = this._values1[entry.ValueIndex];
                 index = entry.ValueIndex;
                 return true;
             }
+
             entryIndex = entry.NextInBucket;
         }
 
@@ -508,18 +548,19 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetValueByHash(int hashCode, out T2 data2, out int index)
     {
-        int bucketIndex = GetBucketIndex(hashCode);
-        int entryIndex = _buckets[bucketIndex];
+        int bucketIndex = this.GetBucketIndex(hashCode);
+        int entryIndex = this._buckets[bucketIndex];
 
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
             if ( entry.HashCode == hashCode )
             {
-                data2 = _values2[entry.ValueIndex];
+                data2 = this._values2[entry.ValueIndex];
                 index = entry.ValueIndex;
                 return true;
             }
+
             entryIndex = entry.NextInBucket;
         }
 
@@ -535,10 +576,12 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public bool Remove(GameObject obj)
     {
         if ( obj == null )
+        {
             return false;
+        }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return RemoveByHash(obj.GetHashCode());
+        return this.RemoveByHash(obj.GetHashCode());
     }
 
     /// <summary>
@@ -547,40 +590,46 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool RemoveByHash(int hashCode)
     {
-        if ( _count == 0 )
+        if ( this._count == 0 )
+        {
             return false;
+        }
 
-        int bucketIndex = GetBucketIndex(hashCode);
-        int entryIndex = _buckets[bucketIndex];
+        int bucketIndex = this.GetBucketIndex(hashCode);
+        int entryIndex = this._buckets[bucketIndex];
         int prevIndex = -1;
 
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
 
             if ( entry.HashCode == hashCode )
             {
+                // エントリの要素を論理削除する。
+                this._values1[entry.ValueIndex].LogicalDelete();
+                this._values2[entry.ValueIndex] = null;
+
                 // エントリをバケットリストから削除
                 if ( prevIndex != -1 )
                 {
                     // 前のエントリの次のリンクを更新
-                    Entry prevEntry = _entries[prevIndex];
+                    Entry prevEntry = this._entries[prevIndex];
                     prevEntry.NextInBucket = entry.NextInBucket;
-                    _entries[prevIndex] = prevEntry;
+                    this._entries[prevIndex] = prevEntry;
                 }
                 else
                 {
-                    _buckets[bucketIndex] = entry.NextInBucket;
+                    this._buckets[bucketIndex] = entry.NextInBucket;
                 }
 
                 // エントリを論理的に削除してフリーリストに追加
                 Entry updatedEntry = entry;
                 updatedEntry.IsOccupied = false;
-                updatedEntry.NextInBucket = _freeListHead;
-                _entries[entryIndex] = updatedEntry;
+                updatedEntry.NextInBucket = this._freeListHead;
+                this._entries[entryIndex] = updatedEntry;
 
-                _freeListHead = entryIndex;
-                _freeCount++;
+                this._freeListHead = entryIndex;
+                this._freeCount++;
 
                 return true;
             }
@@ -597,23 +646,24 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     /// </summary>
     public void Clear()
     {
-        if ( _count == 0 )
+        if ( this._count == 0 )
+        {
             return;
+        }
 
         // バケットを-1で初期化
-        for ( int i = 0; i < _buckets.Length; i++ )
+        for ( int i = 0; i < this._buckets.Length; i++ )
         {
-            _buckets[i] = -1;
+            this._buckets[i] = -1;
         }
 
         // UnsafeListをクリア
-        _entries.Clear();
-        _values1.Clear();
-        _indexForValue.Clear();
+        this._entries.Clear();
+        this._values1.Clear();
 
-        _count = 0;
-        _freeCount = 0;
-        _freeListHead = -1;
+        this._count = 0;
+        this._freeCount = 0;
+        this._freeListHead = -1;
     }
 
     #region 内部データ管理処理
@@ -624,37 +674,35 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     private void Resize(int newCapacity)
     {
         // 素数サイズに調整
-        int newPrimeSize = GetNextPrimeSize(newCapacity);
+        int newPrimeSize = this.GetNextPrimeSize(newCapacity);
 
         // 各コレクションのサイズを拡張（既存データを保持）
-        _entries.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
-        _values1.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
+        this._entries.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
+        this._values1.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
 
         // managed型配列のリサイズ
-        if ( _values2.Length < newPrimeSize )
+        if ( this._values2.Length < newPrimeSize )
         {
-            Array.Resize(ref _values2, newPrimeSize);
+            Array.Resize(ref this._values2, newPrimeSize);
         }
 
-        _indexForValue.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
-
         // バケットリストを新しいサイズで作り直し、-1で初期化
-        _buckets.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
+        this._buckets.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
 
         for ( int i = 0; i < newPrimeSize; i++ )
         {
-            _buckets[i] = -1;
+            this._buckets[i] = -1;
         }
 
         // すべてのエントリを再ハッシュ
-        for ( int i = 0; i < _count; i++ )
+        for ( int i = 0; i < this._count; i++ )
         {
-            ref Entry entry = ref _entries.ElementAt(i);
+            ref Entry entry = ref this._entries.ElementAt(i);
             if ( entry.IsOccupied )
             {
-                int bucket = GetBucketIndex(entry.HashCode);
-                entry.NextInBucket = _buckets[bucket];
-                _buckets[bucket] = i;
+                int bucket = this.GetBucketIndex(entry.HashCode);
+                entry.NextInBucket = this._buckets[bucket];
+                this._buckets[bucket] = i;
             }
         }
     }
@@ -668,7 +716,7 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
         // ハッシュコードは負の値もあり得るので、絶対値を高速に取得
         // hashCode & 0x7FFFFFFF が Math.Abs(hashCode) より高速
         // 絶対値でModをとることで 0～要素数-1、の間のインデックスを取得できる
-        return (hashCode & 0x7FFFFFFF) % _buckets.Length;
+        return (hashCode & 0x7FFFFFFF) % this._buckets.Length;
     }
 
     /// <summary>
@@ -691,13 +739,13 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
 
             if ( insertIndex < PrimeSizes.Length )
             {
-                // テーブル内の次に大きい素数を返す
+                // テーブル内にある要求した値より大きい素数を返す
                 return PrimeSizes[insertIndex];
             }
             else
             {
                 // テーブル内の最大値より大きい場合は計算する
-                return CalculateNextPrime(minSize);
+                return this.CalculateNextPrime(minSize);
             }
         }
     }
@@ -710,9 +758,11 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
         // 奇数から開始（偶数は2以外素数にならない）
         int candidate = minSize;
         if ( candidate % 2 == 0 )
+        {
             candidate++;
+        }
 
-        while ( !IsPrime(candidate) )
+        while ( !this.IsPrime(candidate) )
         {
             candidate += 2; // 奇数のみをチェック
         }
@@ -726,18 +776,28 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     private bool IsPrime(int number)
     {
         if ( number <= 1 )
+        {
             return false;
+        }
+
         if ( number == 2 || number == 3 )
+        {
             return true;
+        }
+
         if ( number % 2 == 0 || number % 3 == 0 )
+        {
             return false;
+        }
 
         // 6k±1の形で表される数のみチェック（効率化）
         int limit = (int)Math.Sqrt(number);
         for ( int i = 5; i <= limit; i += 6 )
         {
             if ( number % i == 0 || number % (i + 2) == 0 )
+            {
                 return false;
+            }
         }
 
         return true;
@@ -752,9 +812,11 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public bool ContainsKey(GameObject obj)
     {
         if ( obj == null )
+        {
             return false;
+        }
 
-        return ContainsKeyByHash(obj.GetHashCode());
+        return this.ContainsKeyByHash(obj.GetHashCode());
     }
 
     /// <summary>
@@ -763,16 +825,17 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool ContainsKeyByHash(int hashCode)
     {
-        int bucketIndex = GetBucketIndex(hashCode);
-        int entryIndex = _buckets[bucketIndex];
+        int bucketIndex = this.GetBucketIndex(hashCode);
+        int entryIndex = this._buckets[bucketIndex];
 
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
             if ( entry.HashCode == hashCode )
             {
                 return true;
             }
+
             entryIndex = entry.NextInBucket;
         }
 
@@ -786,13 +849,15 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public void ForEach(Action<int, T1> action)
     {
         if ( action == null )
-            throw new ArgumentNullException(nameof(action));
-
-        for ( int i = 0; i < _count; i++ )
         {
-            if ( i < _entries.Length && _entries[i].IsOccupied )
+            throw new ArgumentNullException(nameof(action));
+        }
+
+        for ( int i = 0; i < this._count; i++ )
+        {
+            if ( i < this._entries.Length && this._entries[i].IsOccupied )
             {
-                action(i, _values1.ElementAt(i));
+                action(i, this._values1.ElementAt(i));
             }
         }
     }
@@ -804,13 +869,15 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public void ForEach(Action<int, T1, T2> action)
     {
         if ( action == null )
-            throw new ArgumentNullException(nameof(action));
-
-        for ( int i = 0; i < _count; i++ )
         {
-            if ( i < _entries.Length && _entries[i].IsOccupied )
+            throw new ArgumentNullException(nameof(action));
+        }
+
+        for ( int i = 0; i < this._count; i++ )
+        {
+            if ( i < this._entries.Length && this._entries[i].IsOccupied )
             {
-                action(i, _values1.ElementAt(i), _values2.ElementAt(i));
+                action(i, this._values1.ElementAt(i), this._values2.ElementAt(i));
             }
         }
     }
@@ -825,19 +892,19 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     public UnsafeList<T1> GetInternalList1ForJob()
     {
         // 内部リストを返す
-        return _values1;
+        return this._values1;
     }
 
     /// <summary>
     /// キャラクターデータT2を使用するために内部配列への参照を取得する。<br></br>
-    /// T2がmanaged型のため、JobSystemでは使用できない可能性があることに注意。<br></br>
+    /// T2がmanaged型のため、JobSystemでは使用できない。<br></br>
     /// ReadOnlyにしたいところだけど、そうするといろいろ使いにくいから仕方ない。
     /// </summary>
     /// <returns>T2データのSpan</returns>
     public Span<T2> GetInternalArray2()
     {
         // 内部配列を返す
-        return _values2.AsSpan();
+        return this._values2.AsSpan();
     }
 
     /// <summary>
@@ -845,16 +912,17 @@ public class CharacterDataDictionary<T1, T2> : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if ( _isDisposed )
+        if ( this._isDisposed )
+        {
             return;
+        }
 
-        _buckets.Dispose();
-        _entries.Dispose();
-        _values1.Dispose();
+        this._buckets.Dispose();
+        this._entries.Dispose();
+        this._values1.Dispose();
         // _values2はmanaged型の配列なので参照だけ切る。
-        _values2 = null;
+        this._values2 = null;
 
-        _indexForValue.Dispose();
-        _isDisposed = true;
+        this._isDisposed = true;
     }
 }

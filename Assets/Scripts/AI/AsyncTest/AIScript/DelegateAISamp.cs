@@ -7,7 +7,7 @@ public class DelegateAISamp : MonoBehaviour
     /// <summary>
     /// 攻撃する際の条件判断の基準となる設定の列挙型。
     /// </summary>
-    enum JudgeConditions
+    private enum JudgeConditions
     {
         一定距離内にいるかで判定 = 0,// 一定以内の距離にいる敵を攻撃
         HP量で判定 = 1,// HPが一定以上か
@@ -32,13 +32,13 @@ public class DelegateAISamp : MonoBehaviour
     /// たとえばこの変数の値が 一定距離内にいるかで判定 であれば距離が一定以内のものを攻撃する。
     /// </summary>
     [SerializeField]
-    JudgeConditions useCondition;
+    private JudgeConditions useCondition;
 
     /// <summary>
     /// デリゲートの配列。<br></br>
     /// ここに判断処理を格納し、JudgeConditions列挙子の値でアクセスできるようにする。
     /// </summary>
-    Func<TargetData[], TargetData>[] judgeArray = new Func<TargetData[], TargetData>[4];
+    private Func<TargetData[], TargetData>[] judgeArray = new Func<TargetData[], TargetData>[4];
 
     #endregion インスタンス変数
 
@@ -56,43 +56,51 @@ public class DelegateAISamp : MonoBehaviour
         // 距離判定用のローカルメソッド。
         // JudgeConditions.一定距離内にいるかで判定 に対応（処理内容はダミー）
         TargetData distanceJudge(TargetData[] tData)
-        { return tData[0]; }
+        {
+            return tData[0];
+        }
 
         // HP判定用のローカルメソッド。
         // JudgeConditions.HP量で判定 に対応（処理内容はダミー）
         TargetData hpJudge(TargetData[] tData)
-        { return tData[0]; }
+        {
+            return tData[0];
+        }
 
         // MP判定用のローカルメソッド。
         // JudgeConditions.MP量で判定 に対応（処理内容はダミー）
         TargetData mpJudge(TargetData[] tData)
-        { return tData[0]; }
+        {
+            return tData[0];
+        }
 
         // 攻撃力判定用のローカルメソッド。
         // JudgeConditions.攻撃力で判定 に対応（処理内容はダミー）
         TargetData atkJudge(TargetData[] tData)
-        { return tData[0]; }
+        {
+            return tData[0];
+        }
 
         // 各条件を配列に格納。
-        judgeArray[(int)JudgeConditions.一定距離内にいるかで判定] = distanceJudge;
-        judgeArray[(int)JudgeConditions.HP量で判定] = hpJudge;
-        judgeArray[(int)JudgeConditions.MP量で判定] = mpJudge;
-        judgeArray[(int)JudgeConditions.攻撃力で判定] = atkJudge;
+        this.judgeArray[(int)JudgeConditions.一定距離内にいるかで判定] = distanceJudge;
+        this.judgeArray[(int)JudgeConditions.HP量で判定] = hpJudge;
+        this.judgeArray[(int)JudgeConditions.MP量で判定] = mpJudge;
+        this.judgeArray[(int)JudgeConditions.攻撃力で判定] = atkJudge;
     }
 
     /// <summary>
     /// メインループ
     /// </summary>
-    void Update()
+    private void Update()
     {
 
         // 使用する設定で配列のどの要素にアクセスするか、が決定する。
-        TargetData target = judgeArray[(int)useCondition](new TargetData[10]);
+        TargetData target = this.judgeArray[(int)this.useCondition](new TargetData[10]);
 
         // 判断後に攻撃対象がいれば攻撃する。
         if ( target != null )
         {
-            Attack(target);
+            this.Attack(target);
         }
     }
 
@@ -100,7 +108,7 @@ public class DelegateAISamp : MonoBehaviour
     /// 攻撃する処理。
     /// </summary>
     /// <param name="target">攻撃ターゲット</param>
-    void Attack(TargetData target)
+    private void Attack(TargetData target)
     {
 
     }

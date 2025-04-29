@@ -1,17 +1,17 @@
 using Sirenix.OdinInspector;
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Unity.Collections;
 using UnityEngine;
 using static CombatManager;
-using static JTestAIBase;
 
 /// <summary>
-/// 使用場面に基づいてデータを構造体に切り分けている。
-/// メモリキャッシュを意識。
+/// 使用場面に基づいてデータを構造体に切り分けている。<br/>
+/// 
+/// このクラスではキャラクターの設定のデータを定義している。<br/>
+/// いわゆるステータスデータ。<br/>
+/// 可変部分（座標やHP）、キャラクターの意思決定に使用する部分（判断条件等）はJobシステムで使用する前提で値型のみで構成。<br/>
+/// 他の部分はScriptableObjectだけが不変の共有データとして持っていればいいため、参照型(エフェクトのデータなど)も使う。<br/>
 /// </summary>
 [CreateAssetMenu(fileName = "JobAITestStatus", menuName = "Scriptable Objects/JobAITestStatus")]
 public class JobAITestStatus : SerializedScriptableObject
@@ -21,8 +21,7 @@ public class JobAITestStatus : SerializedScriptableObject
     /// <summary>
     /// 自分が行動を決定するための条件
     /// ○○の時、攻撃・回復・支援・逃走・護衛など
-    /// 対象が自分、味方、敵のどれかという区分と否定（以上が以内になったり）フラグの組み合わせで表現
-    /// 行動のバリエーションはモードチェンジ、攻撃、回復などの具体的行動
+    /// 対象が自分、味方、敵のどれかという区分と否定（以上が以内になったり）フラグの組み合わせで表現 - > IsInvertフラグ
     /// 味方が死んだとき、は死亡状態で数秒キャラを残すことで、死亡を条件にしたフィルターにかかるようにするか。
     /// </summary>
     public enum ActJudgeCondition
@@ -74,16 +73,7 @@ public class JobAITestStatus : SerializedScriptableObject
         支援 = 1 << 5,
         回復 = 1 << 6,
         集合 = 1 << 7,// 特定の味方の場所に行く。集合後に防御に移行するロジックを組めば護衛にならない？
-
-        //遠慮 = 9// めちゃくちゃ狙われてる相手に対して、攻撃するかなーって迷ってる。
-        // この状態はだんだんターゲットへのヘイト下がる。攻撃→遠慮→攻撃…を繰り返す。
-        // ヘイトが関係ない条件でターゲットにした場合も攻撃頻度は落ちる。
-        // 待機でいいじゃん
     }
-
-
-
-
 
     /// <summary>
     /// 敵に対するヘイト値の上昇、減少の条件。
@@ -113,14 +103,12 @@ public class JobAITestStatus : SerializedScriptableObject
         雷防御力,
         光防御力,
         闇防御力,
-        // ここからは別判断。
-        距離,// 未実装
+        距離,
         自分,
         プレイヤー,
         指定なし_ヘイト値, // 基本の条件。対象の中で最もヘイト高い相手を攻撃する。
         不要_状態変更// モードチェンジする。
     }
-
 
     /// <summary>
     /// キャラクターの属性。
@@ -148,7 +136,6 @@ public class JobAITestStatus : SerializedScriptableObject
         指定なし = 0//指定なし
     }
 
-
     /// <summary>
     /// キャラクターが所属する陣営
     /// </summary>
@@ -159,7 +146,6 @@ public class JobAITestStatus : SerializedScriptableObject
         その他 = 2,// それ以外
         指定なし = 3
     }
-
 
     /// <summary>
     /// 属性の列挙型
@@ -190,24 +176,6 @@ public class JobAITestStatus : SerializedScriptableObject
         ボス//ボスだけ
     }
 
-    ///// <summary>
-    ///// 行動を使用可能なモード
-    ///// 五つまで
-    ///// これもビット演算でやる？　複数選べるよ？
-    ///// モード1か2なら…みたいに
-    ///   モードはいらない。再現はできる。
-    ///// </summary>
-    //[Flags]
-    //public enum Mode
-    //{
-    //    Mode1 = 1 << 0,
-    //    Mode2 = 1 << 1,
-    //    Mode3 = 1 << 2,
-    //    Mode4 = 1 << 3,
-    //    Mode5 = 1 << 4,
-    //    AllMode = 0
-    //}
-
     /// <summary>
     /// 特殊状態
     /// </summary>
@@ -221,6 +189,7 @@ public class JobAITestStatus : SerializedScriptableObject
 
     /// <summary>
     /// bitableな真偽値
+    /// Jobシステム、というよりネイティブコードと bool の相性が良くないため実装
     /// </summary>
     public enum BitableBool
     {
@@ -287,7 +256,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// <returns></returns>
         public int ReturnSum()
         {
-            return slash + pierce + strike + fire + lightning + light + dark;
+            return this.slash + this.pierce + this.strike + this.fire + this.lightning + this.light + this.dark;
         }
 
     }
@@ -303,7 +272,6 @@ public class JobAITestStatus : SerializedScriptableObject
     [StructLayout(LayoutKind.Auto)]
     public struct CharacterBaseData
     {
-
         /// <summary>
         /// 最大HP
         /// </summary>
@@ -439,7 +407,6 @@ public class JobAITestStatus : SerializedScriptableObject
     [StructLayout(LayoutKind.Sequential)]
     public struct BehaviorData
     {
-
         /// <summary>
         /// 行動をスキップするための条件。
         /// </summary>
@@ -587,7 +554,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("対象の陣営")]
         [SerializeField]
-        CharacterSide targetType;
+        private CharacterSide targetType;
 
         /// <summary>
         /// 対象の特徴
@@ -595,14 +562,14 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("対象の特徴")]
         [SerializeField]
-        CharacterFeature targetFeature;
+        private CharacterFeature targetFeature;
 
         /// <summary>
         /// このフラグが真の時、全部当てはまってないとダメ。
         /// </summary>
         [Header("特徴の判断方法")]
         [SerializeField]
-        BitableBool isAndFeatureCheck;
+        private BitableBool isAndFeatureCheck;
 
         /// <summary>
         /// 対象の状態（バフ、デバフ）
@@ -610,14 +577,14 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("対象が持つ特殊効果")]
         [SerializeField]
-        SpecialEffect targetEffect;
+        private SpecialEffect targetEffect;
 
         /// <summary>
         /// このフラグが真の時、全部当てはまってないとダメ。
         /// </summary>
         [Header("特殊効果の判断方法")]
         [SerializeField]
-        BitableBool isAndEffectCheck;
+        private BitableBool isAndEffectCheck;
 
         /// <summary>
         /// 対象の状態（逃走、攻撃など）
@@ -625,7 +592,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("対象の状態")]
         [SerializeField]
-        ActState targetState;
+        private ActState targetState;
 
         /// <summary>
         /// 対象のイベント状況（大ダメージを与えた、とか）でフィルタリング
@@ -633,14 +600,14 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("対象のイベント")]
         [SerializeField]
-        BrainEventFlagType targetEvent;
+        private BrainEventFlagType targetEvent;
 
         /// <summary>
         /// このフラグが真の時、全部当てはまってないとダメ。
         /// </summary>
         [Header("イベントの判断方法")]
         [SerializeField]
-        BitableBool isAndEventCheck;
+        private BitableBool isAndEventCheck;
 
         /// <summary>
         /// 対象の弱点属性でフィルタリング
@@ -648,7 +615,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("対象の弱点")]
         [SerializeField]
-        Element targetWeakPoint;
+        private Element targetWeakPoint;
 
         /// <summary>
         /// 対象が使う属性でフィルタリング
@@ -656,7 +623,7 @@ public class JobAITestStatus : SerializedScriptableObject
         /// </summary>
         [Header("対象の使用属性")]
         [SerializeField]
-        Element targetUseElement;
+        private Element targetUseElement;
 
         /// <summary>
         /// 検査対象キャラクターの条件に当てはまるかをチェックする。
@@ -667,33 +634,39 @@ public class JobAITestStatus : SerializedScriptableObject
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         public byte IsPassFilter(in CharacterData charaData)
         {
+            // 論理削除対象は常に無視。
+            if ( charaData.IsLogicalDelate() )
+            {
+                return 0;
+            }
+
             // andかorで特徴条件判定
             // 当てはまらないなら帰る。
-            if ( (isAndFeatureCheck == BitableBool.TRUE ? ((targetFeature != 0) && (targetFeature & charaData.solidData.feature) != targetFeature) :
-                                                  ((targetFeature != 0) && (targetFeature & charaData.solidData.feature) == 0)) )
+            if ( this.isAndFeatureCheck == BitableBool.TRUE ? ((this.targetFeature != 0) && (this.targetFeature & charaData.solidData.feature) != this.targetFeature) :
+                                                  ((this.targetFeature != 0) && (this.targetFeature & charaData.solidData.feature) == 0) )
             {
                 return 0;
             }
 
             // 特殊効果判断
             // 当てはまらないなら帰る。
-            if ( (isAndEffectCheck == BitableBool.TRUE ? ((targetEffect != 0) && (targetEffect & charaData.liveData.nowEffect) != targetEffect) :
-                                      ((targetEffect != 0) && (targetEffect & charaData.liveData.nowEffect) == 0)) )
+            if ( this.isAndEffectCheck == BitableBool.TRUE ? ((this.targetEffect != 0) && (this.targetEffect & charaData.liveData.nowEffect) != this.targetEffect) :
+                                      ((this.targetEffect != 0) && (this.targetEffect & charaData.liveData.nowEffect) == 0) )
             {
                 return 0;
             }
 
             // イベント判断
             // 当てはまらないなら帰る。
-            if ( (isAndEventCheck == BitableBool.TRUE ? ((targetEvent != 0) && (targetEvent & charaData.liveData.brainEvent) != targetEvent) :
-                                      ((targetEvent != 0) && (targetEvent & charaData.liveData.brainEvent) == 0)) )
+            if ( this.isAndEventCheck == BitableBool.TRUE ? ((this.targetEvent != 0) && (this.targetEvent & charaData.liveData.brainEvent) != this.targetEvent) :
+                                      ((this.targetEvent != 0) && (this.targetEvent & charaData.liveData.brainEvent) == 0) )
             {
                 return 0;
             }
 
             // 残りの条件も判定。
-            if ( (targetType == 0 || ((targetType & charaData.liveData.belong) > 0)) && (targetState == 0 || ((targetState & charaData.liveData.actState) > 0))
-                && (targetWeakPoint == 0 || ((targetWeakPoint & charaData.solidData.weakPoint) > 0)) && (targetUseElement == 0 || ((targetUseElement & charaData.solidData.attackElement) > 0)) )
+            if ( (this.targetType == 0 || ((this.targetType & charaData.liveData.belong) > 0)) && (this.targetState == 0 || ((this.targetState & charaData.liveData.actState) > 0))
+                && (this.targetWeakPoint == 0 || ((this.targetWeakPoint & charaData.solidData.weakPoint) > 0)) && (this.targetUseElement == 0 || ((this.targetUseElement & charaData.solidData.attackElement) > 0)) )
             {
                 return 1;
             }
@@ -703,77 +676,12 @@ public class JobAITestStatus : SerializedScriptableObject
 
     }
 
-    ///// <summary>
-    ///// モードを変える条件。
-    ///// AIの振る舞い部分にあたる
-    ///// これはまだ使わない
-    ///// モード廃止に伴い封印
-    ///// </summary>
-    //[Serializable]
-    //[StructLayout(LayoutKind.Sequential)]
-    //public struct ModeBehavior
-    //{
-    //    /// <summary>
-    //    /// アタックストップフラグが真の時だけ
-    //    /// レベルとか関係なく発動
-    //    /// </summary>
-    //    [Header("攻撃抑制モードか")]
-    //    public bool isAttackStop;
-
-    //    /// <summary>
-    //    /// 現在のモード
-    //    /// 複数選択可能
-    //    /// </summary>
-    //    [Header("遷移元のモード")]
-    //    public Mode nowMode;
-
-    //    /// <summary>
-    //    /// モードチェンジする体力割合
-    //    /// 0なら無視
-    //    /// </summary>
-    //    [Header("モード変更する体力比。0で無視")]
-    //    public int healthRatio;
-
-    //    /// <summary>
-    //    /// 前回のモードチェンジから何秒で変化するか
-    //    /// 0なら無視
-    //    /// </summary>
-    //    [Header("モード変更時間")]
-    //    public int changeTime;
-
-    //    /// <summary>
-    //    /// xからyの距離でこのモードに
-    //    /// つまり直線距離Xメートルからyメートルの範囲ってことね
-    //    /// 直線距離
-    //    /// 00なら無視
-    //    /// </summary>
-    //    [Header("モード変更距離（00で無効）")]
-    //    public Vector2 changeDistance;
-
-    //    /// <summary>
-    //    /// 変える先のモード
-    //    /// Allならランダムに変わる
-    //    /// 間合いとかの配列数からモードの数を割り出す
-    //    /// </summary>
-    //    [Header("変更先のモード")]
-    //    public Mode changeMode;
-
-    //    /// <summary>
-    //    /// この条件のチェンジの優先度
-    //    /// 0は基本モードにのみ使う
-    //    /// いや基本モードはマイナス1でもいいな
-    //    /// どこからでも戻れるように条件は軽く
-    //    /// </summary>
-    //    [Header("チェンジの優先度。5の時固定")]
-    //    public int modeLevel;
-    //}
-
     /// <summary>
     /// 攻撃のステータス。
-    /// 倍率とか属性とかそのへん。
-    /// これはステータスに持たせておく。
+    /// これはステータスのScriptableに持たせておくのでエフェクトデータとかの参照型も入れていい。
     /// 前回使用した時間、とかを記録するために、キャラクター側に別途リンクした管理情報が必要。
-    /// Jobシステムで使用しない構造体はなるべくメモリレイアウトを最適化する。
+    /// あとJobシステムで使用しない構造体はなるべくメモリレイアウトを最適化する。ネイティブコードとの連携を気にしなくていいから。
+    /// 実際にゲームに組み込む時は攻撃以外の行動にも対応できるようにするか。
     /// </summary>
     [Serializable]
     [StructLayout(LayoutKind.Auto)]
@@ -837,7 +745,8 @@ public class JobAITestStatus : SerializedScriptableObject
 
     /// <summary>
     /// キャラのAIの設定。
-    /// モードごとにモードEnumをint変換した数をインデックスにした配列になる。
+    /// モード（攻撃や逃走などの状態）ごとにモードのEnumを int 変換した数をキーにしたHashMapになる。
+    /// ActStateBrainDictionaryはシリアライズ可能なDictionary。
     /// </summary>
     [Header("キャラAIの設定")]
     public ActStateBrainDictionary brainData;
@@ -850,6 +759,7 @@ public class JobAITestStatus : SerializedScriptableObject
 
     /// <summary>
     /// 各攻撃の攻撃力などの設定。
+    /// Jobに入れないので攻撃エフェクト等も持たせていい。
     /// </summary>
     [Header("攻撃データ一覧")]
     public AttackData[] attackData;

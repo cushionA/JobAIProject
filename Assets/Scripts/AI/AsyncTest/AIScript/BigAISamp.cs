@@ -6,7 +6,7 @@ public class BigAISamp : MonoBehaviour
     /// <summary>
     /// 攻撃する際の条件判断の基準となる設定の列挙型。
     /// </summary>
-    enum JudgeConditions
+    private enum JudgeConditions
     {
         一定距離内にいるかで判定 = 0,// 一定以内の距離にいる敵を攻撃
         HP量で判定 = 1,// HPが一定以上か
@@ -31,7 +31,7 @@ public class BigAISamp : MonoBehaviour
     /// たとえばこの変数の値が 一定距離内にいるかで判定 であれば距離が一定以内のものを攻撃する。
     /// </summary>
     [SerializeField]
-    JudgeConditions useCondition;
+    private JudgeConditions useCondition;
 
     #endregion インスタンス変数
 
@@ -40,7 +40,7 @@ public class BigAISamp : MonoBehaviour
     /// <summary>
     /// メインループ
     /// </summary>
-    void Update()
+    private void Update()
     {
 
         // 敵の中からターゲットを決定。
@@ -59,7 +59,7 @@ public class BigAISamp : MonoBehaviour
     /// </summary>
     /// <param name="tData">ターゲット候補のリスト</param>
     /// <returns>今回の判断の結果、攻撃対象になったターゲット。対象がいなければ null</returns>
-    TargetData Judge(TargetData[] tData)
+    private TargetData Judge(TargetData[] tData)
     {
         //for ( int i = 0; i < tData.Length; i++ )
         //{
@@ -92,7 +92,7 @@ public class BigAISamp : MonoBehaviour
     /// 攻撃する処理。
     /// </summary>
     /// <param name="target">攻撃ターゲット</param>
-    void Attack(TargetData target)
+    private void Attack(TargetData target)
     {
 
     }

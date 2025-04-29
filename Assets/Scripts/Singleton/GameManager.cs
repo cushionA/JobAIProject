@@ -1,19 +1,13 @@
+using System;
 using System.Threading;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
-using System.IO;
-using System;
-using UnityEditor;
-using Debug = UnityEngine.Debug;
-using System.Diagnostics;
 using UnityEngine.Profiling;
-using Unity.Profiling;
 
 public class GameManager : MonoBehaviour
 {
 
-    enum TestType
+    private enum TestType
     {
         同期,
         非同期,
@@ -73,7 +67,7 @@ public class GameManager : MonoBehaviour
     /// 読み取り専用プロパティ。
     /// </summary>
     [HideInInspector]
-    public float NowTime { get => nowTime; }
+    public float NowTime => this.nowTime;
 
     /// <summary>
     /// キャンセルトークン。
@@ -97,13 +91,12 @@ public class GameManager : MonoBehaviour
     private Recorder rec;
 
     // 処理時間のカウント用
-    long totalTime;
+    private long totalTime;
 
     /// <summary>
     /// プロファイラから情報をもらう。
     /// </summary>
    // ProfilerProperty profiler = new UnityEditorInternal.ProfilerProperty();
-
 
     /// <summary>
     /// 起動時にシングルトンのインスタンス作成。
@@ -125,17 +118,17 @@ public class GameManager : MonoBehaviour
     /// <summary>
     /// 初期化処理。
     /// </summary>
-    void Start()
+    private void Start()
     {
         // 非同期か、同期かで生成するオブジェクトを変更。
-        AssetReference reference = objReference[(int)caseType];
+        AssetReference reference = this.objReference[(int)this.caseType];
 
-        int posCount = spawnPositions.Length;
+        int posCount = this.spawnPositions.Length;
 
-        for ( int i = 0; i < genNumber; i++ )
+        for ( int i = 0; i < this.genNumber; i++ )
         {
             // 配置位置に順番に並べていく。
-            AsyncOperationHandle<GameObject> handle = reference.InstantiateAsync(spawnPositions[i % posCount], Quaternion.identity);
+            _ = reference.InstantiateAsync(this.spawnPositions[i % posCount], Quaternion.identity);
 
             if ( i % 100 == 0 )
             {
@@ -144,47 +137,45 @@ public class GameManager : MonoBehaviour
         }
 
         // キャンセルトークンを作成。
-        cToken = new CancellationTokenSource();
+        this.cToken = new CancellationTokenSource();
 
         // 現在の時間を取得。
-        nowTime = Time.time; // 現在のゲーム内時間
+        this.nowTime = Time.time; // 現在のゲーム内時間
 
-        startTime = Time.time; // 開始時間
+        this.startTime = Time.time; // 開始時間
 
         // テスト開始。
-        isTest = true;
+        this.isTest = true;
 
         //Debug.Log($"{genNumber}個のオブジェクトを生成し、{caseType.ToString()}テスト開始。");
 
         // オブジェクト生成後に観測を有効化
-        rec = Recorder.Get("PlayerLoop");
-        rec.enabled = true;
+        this.rec = Recorder.Get("PlayerLoop");
+        this.rec.enabled = true;
     }
 
     /// <summary>
     /// 毎フレーム現在の時間を更新する。
     /// </summary>
-    void Update()
+    private void Update()
     {
         //   //Debug.Log($"テスト中：{GameManager.instance.isTest}");
 
-        nowTime = Time.time;
+        this.nowTime = Time.time;
 
-        totalTime += (long)(rec.elapsedNanoseconds * 100);
-
-
+        this.totalTime += this.rec.elapsedNanoseconds * 100;
 
         // オブジェクト生成時間の分だけ終了時間に加算して終了時間をはかる。
-        if ( nowTime - startTime >= endTime )
+        if ( this.nowTime - this.startTime >= this.endTime )
         {
             // 終了処理開始。
-            isTest = false;
-            cToken.Cancel();
+            this.isTest = false;
+            this.cToken.Cancel();
 
             AsyncTestBase[] objects = FindObjectsByType<AsyncTestBase>(sortMode: FindObjectsSortMode.None);
 
             // 基準となる判断回数の期待値を取得。終了時間を判断間隔で割る。
-            int baseCount = (int)Mathf.Floor(endTime / objects[0].JudgeInterval);
+            int baseCount = (int)Mathf.Floor(this.endTime / objects[0].JudgeInterval);
 
             // 期待値と実際の判断回数との間の差異を格納する。
             long divide = 0;
@@ -206,9 +197,9 @@ public class GameManager : MonoBehaviour
             //    sw.WriteLine(string.Empty);// 空行
             //}
 
-            UnityEngine.Debug.Log($"テスト区分：{caseType.ToString()} 実行日時：{DateTime.Now.ToString()}\n" +
-            $"期待値：{baseCount * genNumber}回 に対して実測値：{divide}回 の差異。\n" +
-            $"平均誤差：{divide / genNumber} オブジェクト数：{genNumber}個 総処理時間：{totalTime}");// 空行
+            UnityEngine.Debug.Log($"テスト区分：{this.caseType.ToString()} 実行日時：{DateTime.Now.ToString()}\n" +
+            $"期待値：{baseCount * this.genNumber}回 に対して実測値：{divide}回 の差異。\n" +
+            $"平均誤差：{divide / this.genNumber} オブジェクト数：{this.genNumber}個 総処理時間：{this.totalTime}");// 空行
 
             // テスト終了。
             //EditorApplication.ExitPlaymode();

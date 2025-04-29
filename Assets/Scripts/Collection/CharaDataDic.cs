@@ -1,19 +1,42 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
-using static Unity.Collections.AllocatorManager;
+
+#region T用インターフェイス
 
 /// <summary>
-/// ゲームオブジェクトのGetHashCode()をキーとし、高効率に管理するデータ辞書
-/// UnityではGetHashCode()がGetInstanceID()と同じ値を返すため、一意性が保証されている。
-/// UnsafeListを使用してGC負荷を削減
+/// 論理削除を実装するインターフェイス。<br/>
+/// このコレクションでは論理削除を採用していて、さらに内部バッファを外に持ち出すため<br/>
+/// コレクション内の要素に論理削除の対応をさせる必要がある。<br/>
+/// Tの要素はnull非許容であるため、誤ってアクセスしないようにインターフェイスの実装を強制。<br/>
+/// </summary>
+public interface ILogicalDelate
+{
+    /// <summary>
+    /// 論理削除されているかどうかを判断するメソッド。
+    /// </summary>
+    /// <returns></returns>
+    bool IsLogicalDelate();
+
+    /// <summary>
+    /// 論理削除するメソッド。
+    /// </summary>
+    void LogicalDelete();
+}
+
+#endregion T用インターフェイス
+
+/// <summary>
+/// ゲームオブジェクトのGetHashCode()をキーとして管理するデータ辞書
+/// UnityではGetHashCode()がGetInstanceID()と同じ値を返すため、キーの一意性が保証されている。
+/// UnsafeListを使用してGCを減らした。
+/// CharacterDataDictionary<T1, T2>との違いはT2がない汎用版であるということだけ
 /// </summary>
 /// <typeparam name="T">格納するデータの型（JobSystemを意識したunmanaged制約付き）</typeparam>
-public class CharaDataDic<T> : IDisposable where T : unmanaged
+public class CharaDataDic<T> : IDisposable where T : unmanaged, ILogicalDelate
 {
     /// <summary>
     /// エントリ構造体 - キーと値とチェーン情報を格納<br></br>
@@ -42,38 +65,76 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
         public bool IsOccupied;
     }
 
-    // 内部データ構造（UnsafeListベース）
-    private UnsafeList<int> _buckets;           // バケット配列（各要素はエントリへのインデックス、-1は空）
-    private UnsafeList<Entry> _entries;         // エントリの配列
-    private UnsafeList<T> _values;              // 実際のデータを格納する配列
-    private UnsafeList<int> _indexForValue;     // 値インデックス→エントリインデックスの逆引き
+    /// <summary>
+    /// バケット配列（各要素はエントリへのインデックス、-1は空）
+    /// </summary>
+    private UnsafeList<int> _buckets;
 
-    private int _count;                  // 使用中のエントリ数
-    private int _freeListHead;           // 削除済みエントリの再利用リスト先頭
-    private int _freeCount;              // 再利用可能なエントリ数
+    /// <summary>
+    /// エントリのリスト
+    /// </summary>
+    private UnsafeList<Entry> _entries;
 
-    private bool _isDisposed;            // 解放済みフラグ
-    private readonly Allocator _allocator; // メモリアロケータ
+    /// <summary>
+    /// 実際のデータT1を格納するリスト
+    /// </summary>
+    private UnsafeList<T> _values;
 
-    // 素数テーブル - よく使われるサイズに近い素数
+    /// <summary>
+    /// 使用中のエントリ数
+    /// </summary>
+    private int _count;
+
+    /// <summary>
+    /// 削除済みエントリの再利用リスト先頭
+    /// </summary>
+    private int _freeListHead;
+
+    /// <summary>
+    /// 再利用可能なエントリ数
+    /// </summary>
+    private int _freeCount;
+
+    /// <summary>
+    /// 解放済みフラグ
+    /// </summary>
+    private bool _isDisposed;
+
+    /// <summary>
+    /// メモリの確保のタイプ
+    /// </summary>
+    private readonly Allocator _allocator;
+
+    /// <summary>
+    /// 素数テーブル
+    /// リサイズの際に使用する。
+    /// よく考えたらハッシュ衝突はないので2のべき乗にすべきかもしれない。
+    /// バケットに均等に要素が撒かれるので素数にも意味はありそうではある
+    /// </summary>
     private static readonly int[] PrimeSizes = {
         17, 37, 79, 163, 331, 673, 1361, 2729, 5471, 10949, 21911, 43853,
         87719, 175447, 350899, 701819, 1403641, 2807303, 5614657, 11229331
     };
 
-    // 定数
-    private const int DEFAULT_CAPACITY = 1031;    // デフォルト容量（素数）
-    private const float LOAD_FACTOR = 0.75f;      // 負荷係数（この値を超えるとリサイズ）
+    /// <summary>
+    /// 初期サイズ定数
+    /// </summary>
+    private const int DEFAULT_CAPACITY = 1031;
+
+    /// <summary>
+    /// 負荷係数（収容済み要素の割合がこの値を超えるとリサイズ）
+    /// </summary>
+    private const float LOAD_FACTOR = 0.75f;
 
     /// <summary>
     /// 格納されている要素数
     /// </summary>
-    public int Count => _count - _freeCount;
+    public int Count => this._count - this._freeCount;
 
     /// <summary>
     /// バケットの容量
     /// </summary>
-    public int Capacity => _entries.Length;
+    public int Capacity => this._entries.Length;
 
     /// <summary>
     /// インデクサ - ゲームオブジェクトからの値アクセス
@@ -83,13 +144,18 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
         get
         {
             if ( gameObject == null )
+            {
                 throw new ArgumentNullException(nameof(gameObject));
+            }
 
-            if ( TryGetValue(gameObject, out T value, out _) )
+            if ( this.TryGetValue(gameObject, out T value, out _) )
+            {
                 return value;
+            }
+
             throw new KeyNotFoundException($"GameObject {gameObject.name} not found in store");
         }
-        set => Add(gameObject, value);
+        set => this.Add(gameObject, value);
     }
 
     /// <summary>
@@ -99,11 +165,14 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     {
         get
         {
-            if ( TryGetValueByHash(hashOrInstanceId, out T value, out _) )
+            if ( this.TryGetValueByHash(hashOrInstanceId, out T value, out _) )
+            {
                 return value;
-            throw new KeyNotFoundException($"HashCode/InstanceID {hashOrInstanceId} not found in store");
+            }
+
+            throw new KeyNotFoundException($"HashCode/InstanceID {hashOrInstanceId.ToString()} not found in store");
         }
-        set => AddByHash(hashOrInstanceId, value);
+        set => this.AddByHash(hashOrInstanceId, value);
     }
 
     /// <summary>
@@ -114,12 +183,16 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
         get
         {
             if ( !isValueIndex )
+            {
                 throw new ArgumentException("Second parameter must be true when accessing by value index");
+            }
 
-            if ( valueIndex < 0 || valueIndex >= _count || !IsValidIndex(valueIndex) )
+            if ( valueIndex < 0 || valueIndex >= this._count || !this.IsValidIndex(valueIndex) )
+            {
                 throw new ArgumentOutOfRangeException(nameof(valueIndex));
+            }
 
-            return _values[valueIndex];
+            return this._values[valueIndex];
         }
     }
 
@@ -131,32 +204,30 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     public CharaDataDic(int capacity = DEFAULT_CAPACITY, Allocator allocator = Allocator.Persistent)
     {
         // アロケータ保存
-        _allocator = allocator;
+        this._allocator = allocator;
 
         // 指定容量以上の最小の素数を選択
-        int primeCapacity = GetNextPrimeSize(capacity);
+        int primeCapacity = this.GetNextPrimeSize(capacity);
 
         // UnsafeListの初期化
-        _buckets = new UnsafeList<int>(primeCapacity, allocator);
-        _entries = new UnsafeList<Entry>(primeCapacity, allocator);
-        _values = new UnsafeList<T>(primeCapacity, allocator);
-        _indexForValue = new UnsafeList<int>(primeCapacity, allocator);
+        this._buckets = new UnsafeList<int>(primeCapacity, allocator);
+        this._entries = new UnsafeList<Entry>(primeCapacity, allocator);
+        this._values = new UnsafeList<T>(primeCapacity, allocator);
 
         // バケットリストの容量確保と-1で初期化
-        _buckets.Resize(primeCapacity, NativeArrayOptions.ClearMemory);
-        for ( int i = 0; i < _buckets.Length; i++ )
+        this._buckets.Resize(primeCapacity, NativeArrayOptions.ClearMemory);
+        for ( int i = 0; i < this._buckets.Length; i++ )
         {
-            _buckets[i] = -1;
+            this._buckets[i] = -1;
         }
 
         // 他のリストの容量を確保
-        _entries.Capacity = primeCapacity;
-        _values.Capacity = primeCapacity;
-        _indexForValue.Capacity = primeCapacity;
+        this._entries.Capacity = primeCapacity;
+        this._values.Capacity = primeCapacity;
 
-        _freeListHead = -1;
-        _count = 0;
-        _freeCount = 0;
+        this._freeListHead = -1;
+        this._count = 0;
+        this._freeCount = 0;
     }
 
     /// <summary>
@@ -166,10 +237,12 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     public int Add(GameObject obj, T data)
     {
         if ( obj == null )
+        {
             throw new ArgumentNullException(nameof(obj));
+        }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return AddByHash(obj.GetHashCode(), data);
+        return this.AddByHash(obj.GetHashCode(), data);
     }
 
     /// <summary>
@@ -179,24 +252,24 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     public int AddByHash(int hashCode, T data)
     {
         // 負荷係数チェック - 必要に応じてリサイズ
-        if ( (_count - _freeCount) >= _entries.Length * LOAD_FACTOR )
+        if ( (this._count - this._freeCount) >= this._entries.Length * LOAD_FACTOR )
         {
-            Resize(_entries.Length * 2);
+            this.Resize(this._entries.Length * 2);
         }
 
         // バケットインデックスを計算（単純モジュロ法）
-        int bucketIndex = GetBucketIndex(hashCode);
+        int bucketIndex = this.GetBucketIndex(hashCode);
 
         // 同じキーが既に存在するか検索
-        int entryIndex = _buckets[bucketIndex];
+        int entryIndex = this._buckets[bucketIndex];
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
             // ハッシュコードのみでチェック（GetInstanceID()と同じ値なので一意性が保証される）
             if ( entry.HashCode == hashCode )
             {
                 // 既存エントリを更新
-                _values[entry.ValueIndex] = data;
+                this._values[entry.ValueIndex] = data;
                 return entry.ValueIndex;
             }
 
@@ -206,64 +279,56 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
 
         // 新しいエントリ用のインデックスを確保
         int newIndex;
-        if ( _freeCount > 0 )
+        if ( this._freeCount > 0 )
         {
             // 削除済みエントリを再利用
-            newIndex = _freeListHead;
-            _freeListHead = _entries.ElementAt(newIndex).NextInBucket;
-            _freeCount--;
+            newIndex = this._freeListHead;
+            this._freeListHead = this._entries.ElementAt(newIndex).NextInBucket;
+            this._freeCount--;
         }
         else
         {
             // 新しいスロットを使用
-            if ( _count == _entries.Length )
+            if ( this._count == this._entries.Length )
             {
-                Resize(_entries.Length * 2);
-                bucketIndex = GetBucketIndex(hashCode);
+                this.Resize(this._entries.Length * 2);
+                bucketIndex = this.GetBucketIndex(hashCode);
             }
-            newIndex = _count;
-            _count++;
+
+            newIndex = this._count;
+            this._count++;
         }
 
         // エントリと値のリストが十分な大きさになるよう拡張
-        EnsureCapacity(newIndex);
+        this.EnsureCapacity(newIndex);
 
         // 新しいエントリの設定
         Entry newEntry;
         newEntry.HashCode = hashCode;
         newEntry.ValueIndex = newIndex;
-        newEntry.NextInBucket = _buckets[bucketIndex];
+        newEntry.NextInBucket = this._buckets[bucketIndex];
         newEntry.IsOccupied = true;
 
         // UnsafeListの更新
-        if ( newIndex < _entries.Length )
+        if ( newIndex < this._entries.Length )
         {
-            _entries[newIndex] = newEntry;
+            this._entries[newIndex] = newEntry;
         }
         else
         {
-            _entries.Add(newEntry);
+            this._entries.Add(newEntry);
         }
 
-        if ( newIndex < _values.Length )
+        if ( newIndex < this._values.Length )
         {
-            _values[newIndex] = data;
+            this._values[newIndex] = data;
         }
         else
         {
-            _values.Add(data);
+            this._values.Add(data);
         }
 
-        if ( newIndex < _indexForValue.Length )
-        {
-            _indexForValue[newIndex] = newIndex;
-        }
-        else
-        {
-            _indexForValue.Add(newIndex);
-        }
-
-        _buckets[bucketIndex] = newIndex;
+        this._buckets[bucketIndex] = newIndex;
 
         return newIndex;
     }
@@ -275,22 +340,16 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     private void EnsureCapacity(int index)
     {
         // 必要に応じて各リストの容量を拡張
-        if ( _entries.Capacity <= index )
+        if ( this._entries.Capacity <= index )
         {
-            int newCapacity = Math.Max(_entries.Capacity * 2, index + 1);
-            _entries.Capacity = newCapacity;
+            int newCapacity = Math.Max(this._entries.Capacity * 2, index + 1);
+            this._entries.Capacity = newCapacity;
         }
 
-        if ( _values.Capacity <= index )
+        if ( this._values.Capacity <= index )
         {
-            int newCapacity = Math.Max(_values.Capacity * 2, index + 1);
-            _values.Capacity = newCapacity;
-        }
-
-        if ( _indexForValue.Capacity <= index )
-        {
-            int newCapacity = Math.Max(_indexForValue.Capacity * 2, index + 1);
-            _indexForValue.Capacity = newCapacity;
+            int newCapacity = Math.Max(this._values.Capacity * 2, index + 1);
+            this._values.Capacity = newCapacity;
         }
     }
 
@@ -300,7 +359,7 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsValidIndex(int index)
     {
-        return index >= 0 && index < _count && _entries[index].IsOccupied;
+        return index >= 0 && index < this._count && this._entries[index].IsOccupied;
     }
 
     /// <summary>
@@ -309,12 +368,12 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ref T GetDataByIndex(int index)
     {
-        if ( !IsValidIndex(index) )
+        if ( !this.IsValidIndex(index) )
         {
             throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry");
         }
 
-        return ref _values.ElementAt(index);
+        return ref this._values.ElementAt(index);
     }
 
     /// <summary>
@@ -331,7 +390,7 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
         }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return TryGetValueByHash(obj.GetHashCode(), out data, out index);
+        return this.TryGetValueByHash(obj.GetHashCode(), out data, out index);
     }
 
     /// <summary>
@@ -340,18 +399,19 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetValueByHash(int hashCode, out T data, out int index)
     {
-        int bucketIndex = GetBucketIndex(hashCode);
-        int entryIndex = _buckets[bucketIndex];
+        int bucketIndex = this.GetBucketIndex(hashCode);
+        int entryIndex = this._buckets[bucketIndex];
 
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
             if ( entry.HashCode == hashCode )
             {
-                data = _values[entry.ValueIndex];
+                data = this._values[entry.ValueIndex];
                 index = entry.ValueIndex;
                 return true;
             }
+
             entryIndex = entry.NextInBucket;
         }
 
@@ -367,10 +427,12 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     public bool Remove(GameObject obj)
     {
         if ( obj == null )
+        {
             return false;
+        }
 
         // GetHashCode()を使用（GetInstanceID()と同じ値）
-        return RemoveByHash(obj.GetHashCode());
+        return this.RemoveByHash(obj.GetHashCode());
     }
 
     /// <summary>
@@ -379,40 +441,45 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool RemoveByHash(int hashCode)
     {
-        if ( _count == 0 )
+        if ( this._count == 0 )
+        {
             return false;
+        }
 
-        int bucketIndex = GetBucketIndex(hashCode);
-        int entryIndex = _buckets[bucketIndex];
+        int bucketIndex = this.GetBucketIndex(hashCode);
+        int entryIndex = this._buckets[bucketIndex];
         int prevIndex = -1;
 
         while ( entryIndex != -1 )
         {
-            ref Entry entry = ref _entries.ElementAt(entryIndex);
+            ref Entry entry = ref this._entries.ElementAt(entryIndex);
 
             if ( entry.HashCode == hashCode )
             {
+                // エントリの要素を論理削除する。
+                this._values[entry.ValueIndex].LogicalDelete();
+
                 // エントリをバケットリストから削除
                 if ( prevIndex != -1 )
                 {
                     // 前のエントリの次のリンクを更新
-                    Entry prevEntry = _entries[prevIndex];
+                    Entry prevEntry = this._entries[prevIndex];
                     prevEntry.NextInBucket = entry.NextInBucket;
-                    _entries[prevIndex] = prevEntry;
+                    this._entries[prevIndex] = prevEntry;
                 }
                 else
                 {
-                    _buckets[bucketIndex] = entry.NextInBucket;
+                    this._buckets[bucketIndex] = entry.NextInBucket;
                 }
 
                 // エントリを論理的に削除してフリーリストに追加
                 Entry updatedEntry = entry;
                 updatedEntry.IsOccupied = false;
-                updatedEntry.NextInBucket = _freeListHead;
-                _entries[entryIndex] = updatedEntry;
+                updatedEntry.NextInBucket = this._freeListHead;
+                this._entries[entryIndex] = updatedEntry;
 
-                _freeListHead = entryIndex;
-                _freeCount++;
+                this._freeListHead = entryIndex;
+                this._freeCount++;
 
                 return true;
             }
@@ -429,23 +496,24 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     /// </summary>
     public void Clear()
     {
-        if ( _count == 0 )
+        if ( this._count == 0 )
+        {
             return;
+        }
 
         // バケットを-1で初期化
-        for ( int i = 0; i < _buckets.Length; i++ )
+        for ( int i = 0; i < this._buckets.Length; i++ )
         {
-            _buckets[i] = -1;
+            this._buckets[i] = -1;
         }
 
         // UnsafeListをクリア
-        _entries.Clear();
-        _values.Clear();
-        _indexForValue.Clear();
+        this._entries.Clear();
+        this._values.Clear();
 
-        _count = 0;
-        _freeCount = 0;
-        _freeListHead = -1;
+        this._count = 0;
+        this._freeCount = 0;
+        this._freeListHead = -1;
     }
 
     #region 内部データ管理処理
@@ -456,30 +524,29 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     private void Resize(int newCapacity)
     {
         // 素数サイズに調整
-        int newPrimeSize = GetNextPrimeSize(newCapacity);
+        int newPrimeSize = this.GetNextPrimeSize(newCapacity);
 
         // 各コレクションのサイズを拡張（既存データを保持）
-        _entries.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
-        _values.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
-        _indexForValue.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
+        this._entries.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
+        this._values.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
 
         // バケットリストを新しいサイズで作り直し、-1で初期化
-        _buckets.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
+        this._buckets.Resize(newPrimeSize, NativeArrayOptions.ClearMemory);
 
         for ( int i = 0; i < newPrimeSize; i++ )
         {
-            _buckets[i] = -1;
+            this._buckets[i] = -1;
         }
 
         // すべてのエントリを再ハッシュ
-        for ( int i = 0; i < _count; i++ )
+        for ( int i = 0; i < this._count; i++ )
         {
-            ref Entry entry = ref _entries.ElementAt(i);
+            ref Entry entry = ref this._entries.ElementAt(i);
             if ( entry.IsOccupied )
             {
-                int bucket = GetBucketIndex(entry.HashCode);
-                entry.NextInBucket = _buckets[bucket];
-                _buckets[bucket] = i;
+                int bucket = this.GetBucketIndex(entry.HashCode);
+                entry.NextInBucket = this._buckets[bucket];
+                this._buckets[bucket] = i;
             }
         }
     }
@@ -492,8 +559,8 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     {
         // ハッシュコードは負の値もあり得るので、絶対値を高速に取得
         // hashCode & 0x7FFFFFFF が Math.Abs(hashCode) より高速
-        // 絶対値でModをとることで 0～要素数-1、の間のインデックスを取得できる
-        return (hashCode & 0x7FFFFFFF) % _buckets.Length;
+        // 絶対値のModをとることで 0～要素数-1、の間のインデックスを取得できる
+        return (hashCode & 0x7FFFFFFF) % this._buckets.Length;
     }
 
     /// <summary>
@@ -522,7 +589,7 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
             else
             {
                 // テーブル内の最大値より大きい場合は計算する
-                return CalculateNextPrime(minSize);
+                return this.CalculateNextPrime(minSize);
             }
         }
     }
@@ -535,9 +602,11 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
         // 奇数から開始（偶数は2以外素数にならない）
         int candidate = minSize;
         if ( candidate % 2 == 0 )
+        {
             candidate++;
+        }
 
-        while ( !IsPrime(candidate) )
+        while ( !this.IsPrime(candidate) )
         {
             candidate += 2; // 奇数のみをチェック
         }
@@ -551,18 +620,28 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     private bool IsPrime(int number)
     {
         if ( number <= 1 )
+        {
             return false;
+        }
+
         if ( number == 2 || number == 3 )
+        {
             return true;
+        }
+
         if ( number % 2 == 0 || number % 3 == 0 )
+        {
             return false;
+        }
 
         // 6k±1の形で表される数のみチェック（効率化）
         int limit = (int)Math.Sqrt(number);
         for ( int i = 5; i <= limit; i += 6 )
         {
             if ( number % i == 0 || number % (i + 2) == 0 )
+            {
                 return false;
+            }
         }
 
         return true;
@@ -577,17 +656,18 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     public void ForEach(Action<int, T> action)
     {
         if ( action == null )
-            throw new ArgumentNullException(nameof(action));
-
-        for ( int i = 0; i < _count; i++ )
         {
-            if ( i < _entries.Length && _entries[i].IsOccupied )
+            throw new ArgumentNullException(nameof(action));
+        }
+
+        for ( int i = 0; i < this._count; i++ )
+        {
+            if ( i < this._entries.Length && this._entries[i].IsOccupied )
             {
-                action(i, _values.ElementAt(i));
+                action(i, this._values.ElementAt(i));
             }
         }
     }
-
 
     /// <summary>
     /// ジョブシステムでキャラクターデータを使用するためにリストを内部から取得する。<br></br>
@@ -599,7 +679,7 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     public UnsafeList<T> GetInternalListForJob()
     {
         // 内部リストを返す
-        return _values;
+        return this._values;
     }
 
     /// <summary>
@@ -607,17 +687,15 @@ public class CharaDataDic<T> : IDisposable where T : unmanaged
     /// </summary>
     public void Dispose()
     {
-        if ( _isDisposed )
+        if ( this._isDisposed )
+        {
             return;
+        }
 
-        _buckets.Dispose();
-        _entries.Dispose();
-        _values.Dispose();
-        _indexForValue.Dispose();
-        _isDisposed = true;
+        this._buckets.Dispose();
+        this._entries.Dispose();
+        this._values.Dispose();
+        this._isDisposed = true;
     }
-
-
-
 
 }

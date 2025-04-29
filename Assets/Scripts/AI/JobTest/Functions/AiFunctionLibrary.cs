@@ -1,22 +1,17 @@
-using Unity.Jobs;
-using UnityEngine;
-using Unity.Collections;
-using static JTestAIBase;
-using Unity.Collections.LowLevel.Unsafe;
-using static CombatManager;
-using System.ComponentModel;
-using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
+using System;
 using System.Runtime.CompilerServices;
 using Unity.Burst;
+using Unity.Collections;
+using UnityEngine;
 using static JobAITestStatus;
-using System;
-using System.Runtime.InteropServices; // MarshalAs属性用
 
 /// <summary>
+/// 2025/4/27 未使用に決定。要素をprivateにして封印し、staticも取り消し。FunctionPointerの勉強用に残す
+/// 
 /// FunctionPointer用のメソッドを抱えるクラス
 /// ここで作ったNativeArrayはCombatManagerで始末する。
 /// </summary>
-public static class AiFunctionLibrary
+public class AiFunctionLibrary
 {
     #region スキップ条件
 
@@ -26,12 +21,12 @@ public static class AiFunctionLibrary
     /// <param name="skipData"></param>
     /// <param name="charaData"></param>
     /// <returns></returns>
-    public delegate int SkipJudgeDelegate(in SkipJudgeData skipData, in CharacterData charaData);
+    private delegate int SkipJudgeDelegate(in SkipJudgeData skipData, in CharacterData charaData);
 
     /// <summary>
     /// スキップ条件のFunctionPointer配列
     /// </summary>
-    public static NativeArray<FunctionPointer<SkipJudgeDelegate>> skipFunctions = new NativeArray<FunctionPointer<SkipJudgeDelegate>>(2, Allocator.Persistent);
+    private NativeArray<FunctionPointer<SkipJudgeDelegate>> skipFunctions;
 
     #endregion スキップ条件
 
@@ -46,12 +41,12 @@ public static class AiFunctionLibrary
     /// <param name="targetData"></param>
     /// <param name="charaData"></param>
     /// <returns></returns>
-    public delegate int TargetJudgeDelegate(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue);
+    private delegate int TargetJudgeDelegate(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue);
 
     /// <summary>
     /// ターゲット条件のFunctionPointer配列
     /// </summary>
-    public static NativeArray<FunctionPointer<TargetJudgeDelegate>> targetFunctions = new NativeArray<FunctionPointer<TargetJudgeDelegate>>(20, Allocator.Persistent);
+    private NativeArray<FunctionPointer<TargetJudgeDelegate>> targetFunctions;
 
     #endregion ターゲット・ヘイト条件
 
@@ -63,52 +58,55 @@ public static class AiFunctionLibrary
     /// <param name="actJudgeData"></param>
     /// <param name="charaData"></param>
     /// <returns></returns>
-    public delegate int ActJudgeDelegate(in ActJudgeData actJudgeData, in CharacterData charaData);
+    private delegate int ActJudgeDelegate(in ActJudgeData actJudgeData, in CharacterData charaData);
 
     /// <summary>
     /// 行動条件のFunctionPointer配列
     /// </summary>
-    public static NativeArray<FunctionPointer<ActJudgeDelegate>> actFunctions = new NativeArray<FunctionPointer<ActJudgeDelegate>>(12, Allocator.Persistent);
+    private NativeArray<FunctionPointer<ActJudgeDelegate>> actFunctions;
 
     #endregion 行動判断
 
     // FunctionPointerの初期化メソッドを追加
-    static AiFunctionLibrary()
+    private AiFunctionLibrary()
     {
+        // 未使用のため何も生成しない
+        return;
+
         try
         {
             #region スキップ条件判断デリゲート
-            skipFunctions[(int)SkipJudgeCondition.自分のHPが一定割合の時] = BurstCompiler.CompileFunctionPointer<SkipJudgeDelegate>(HPSkipJudge);
-            skipFunctions[(int)SkipJudgeCondition.自分のMPが一定割合の時] = BurstCompiler.CompileFunctionPointer<SkipJudgeDelegate>(MPSkipJudge);
+            this.skipFunctions[(int)SkipJudgeCondition.自分のHPが一定割合の時] = BurstCompiler.CompileFunctionPointer<SkipJudgeDelegate>(HPSkipJudge);
+            this.skipFunctions[(int)SkipJudgeCondition.自分のMPが一定割合の時] = BurstCompiler.CompileFunctionPointer<SkipJudgeDelegate>(MPSkipJudge);
             #endregion スキップ条件判断デリゲート
 
             #region ヘイト・ターゲット判定
 
             // 各列挙子に対応する関数ポインタを設定
-            targetFunctions[(int)TargetSelectCondition.高度] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(HeightTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.HP割合] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(HPRatioTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.HP] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(HPTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.敵に狙われてる数] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(AttentionTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.合計攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(AtkTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.合計防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(DefTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.高度] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(HeightTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.HP割合] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(HPRatioTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.HP] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(HPTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.敵に狙われてる数] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(AttentionTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.合計攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(AtkTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.合計防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(DefTargetJudge);
 
             // 属性攻撃力関連
-            targetFunctions[(int)TargetSelectCondition.斬撃攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(SlashAtkTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.刺突攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(PierceAtkTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.打撃攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(StrikeAtkTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.炎攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(FireAtkTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.雷攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(LightningAtkTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.光攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(LightAtkTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.闇攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(DarkAtkTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.斬撃攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(SlashAtkTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.刺突攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(PierceAtkTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.打撃攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(StrikeAtkTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.炎攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(FireAtkTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.雷攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(LightningAtkTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.光攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(LightAtkTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.闇攻撃力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(DarkAtkTargetJudge);
 
             // 属性防御力関連
-            targetFunctions[(int)TargetSelectCondition.斬撃防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(SlashDefTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.刺突防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(PierceDefTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.打撃防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(StrikeDefTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.炎防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(FireDefTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.雷防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(LightningDefTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.光防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(LightDefTargetJudge);
-            targetFunctions[(int)TargetSelectCondition.闇防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(DarkDefTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.斬撃防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(SlashDefTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.刺突防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(PierceDefTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.打撃防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(StrikeDefTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.炎防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(FireDefTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.雷防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(LightningDefTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.光防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(LightDefTargetJudge);
+            this.targetFunctions[(int)TargetSelectCondition.闇防御力] = BurstCompiler.CompileFunctionPointer<TargetJudgeDelegate>(DarkDefTargetJudge);
 
             #endregion ヘイト・ターゲット判定
         }
@@ -128,7 +126,7 @@ public static class AiFunctionLibrary
     /// <returns></returns>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int HPSkipJudge(in SkipJudgeData skipData, in CharacterData charaData)
+    private static int HPSkipJudge(in SkipJudgeData skipData, in CharacterData charaData)
     {
         // 各条件を個別に int で評価
         int equalCondition = skipData.judgeValue == charaData.liveData.hpRatio ? 1 : 0;
@@ -137,12 +135,13 @@ public static class AiFunctionLibrary
 
         // 明示的に条件を組み合わせる
         int condition1 = equalCondition;
-        int condition2 = (lessCondition != 0) == (invertCondition != 0) ? 1 : 0;
+        int condition2 = lessCondition != 0 == (invertCondition != 0) ? 1 : 0;
 
         if ( condition1 != 0 || condition2 != 0 )
         {
             return 1;
         }
+
         return 0;
     }
 
@@ -152,7 +151,7 @@ public static class AiFunctionLibrary
     /// <returns></returns>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int MPSkipJudge(in SkipJudgeData skipData, in CharacterData charaData)
+    private static int MPSkipJudge(in SkipJudgeData skipData, in CharacterData charaData)
     {
         // 各条件を個別に int で評価
         int equalCondition = skipData.judgeValue == charaData.liveData.mpRatio ? 1 : 0;
@@ -161,12 +160,13 @@ public static class AiFunctionLibrary
 
         // 明示的に条件を組み合わせる
         int condition1 = equalCondition;
-        int condition2 = (lessCondition != 0) == (invertCondition != 0) ? 1 : 0;
+        int condition2 = lessCondition != 0 == (invertCondition != 0) ? 1 : 0;
 
         if ( condition1 != 0 || condition2 != 0 )
         {
             return 1;
         }
+
         return 0;
     }
     #endregion スキップ条件判断
@@ -178,7 +178,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int HeightTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int HeightTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -218,7 +218,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int HPRatioTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int HPRatioTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -257,7 +257,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int HPTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int HPTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -296,7 +296,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int AttentionTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int AttentionTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -335,7 +335,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int AtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int AtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -374,7 +374,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int DefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int DefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -415,7 +415,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int SlashAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int SlashAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -454,7 +454,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int PierceAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int PierceAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -484,6 +484,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -492,7 +493,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int StrikeAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int StrikeAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -522,6 +523,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -530,7 +532,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int FireAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int FireAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -560,6 +562,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -568,7 +571,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int LightningAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int LightningAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -598,6 +601,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -606,7 +610,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int LightAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int LightAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -636,6 +640,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -644,7 +649,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int DarkAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int DarkAtkTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -674,6 +679,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -686,7 +692,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int SlashDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int SlashDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -725,7 +731,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int PierceDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int PierceDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -755,6 +761,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -763,7 +770,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int StrikeDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int StrikeDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -793,6 +800,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -801,7 +809,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int FireDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int FireDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -831,6 +839,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -839,7 +848,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int LightningDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int LightningDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -869,6 +878,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -877,7 +887,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int LightDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int LightDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -907,6 +917,7 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -915,7 +926,7 @@ public static class AiFunctionLibrary
     /// </summary>
     [BurstCompile]
     [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-    public static int DarkDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
+    private static int DarkDefTargetJudge(in TargetJudgeData targetData, in CharacterData charaData, ref int nowValue)
     {
         // フィルターをパスできなければ戻る。
         if ( targetData.filter.IsPassFilter(charaData) == 0 )
@@ -945,12 +956,12 @@ public static class AiFunctionLibrary
                 return 1;
             }
         }
+
         return 0;
     }
 
     #endregion 属性防御力
 
     #endregion ヘイト・ターゲット判定
-
 
 }

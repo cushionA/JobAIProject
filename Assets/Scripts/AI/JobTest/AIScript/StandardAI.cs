@@ -1,14 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Mathematics;
 using UnityEngine;
-using static JTestAIBase;
 using static CombatManager;
 using static JobAITestStatus;
-using System.Runtime.CompilerServices;
-using Unity.Collections.LowLevel.Unsafe;
-using Unity.Collections;
-using Unity.Mathematics;
-using System.Runtime.InteropServices;
+using static JTestAIBase;
 
 /// <summary>
 /// AITestJobの非JobSystem版実装（標準コレクション使用）
@@ -42,7 +42,6 @@ public struct StandardAI
     /// </summary>
     public int[] relationMap;
 
-
     /// <summary>
     /// JobAIのデータからStandardAIを初期化するコンストラクタ
     /// </summary>
@@ -53,38 +52,37 @@ public struct StandardAI
     public StandardAI(NativeHashMap<int2, int> jobTeamHate, UnsafeList<CharacterData> jobCharacterData, float time, NativeArray<int> jobRelationMap)
     {
         // 現在時間をコピー
-        nowTime = time;
+        this.nowTime = time;
 
         // チームヘイトデータのコピー
-        teamHate = new Dictionary<int2, int>();
+        this.teamHate = new Dictionary<int2, int>();
         foreach ( var key in jobTeamHate.GetKeyArray(Allocator.Temp) )
         {
-            int2 newKey = new int2(key.x, key.y);
-            teamHate[newKey] = jobTeamHate[key];
+            int2 newKey = new(key.x, key.y);
+            this.teamHate[newKey] = jobTeamHate[key];
         }
 
         // キャラクターデータのコピー
-        characterData = new List<CharacterData>(jobCharacterData.Length);
+        this.characterData = new List<CharacterData>(jobCharacterData.Length);
         for ( int i = 0; i < jobCharacterData.Length; i++ )
         {
-            characterData.Add(jobCharacterData[i]);
+            this.characterData.Add(jobCharacterData[i]);
         }
 
         // 判定結果用のリストを作成
-        judgeResult = new List<MovementInfo>(characterData.Count);
-        for ( int i = 0; i < characterData.Count; i++ )
+        this.judgeResult = new List<MovementInfo>(this.characterData.Count);
+        for ( int i = 0; i < this.characterData.Count; i++ )
         {
-            judgeResult.Add(new MovementInfo());
+            this.judgeResult.Add(new MovementInfo());
         }
 
         // 関係マップのコピー
-        relationMap = new int[jobRelationMap.Length];
+        this.relationMap = new int[jobRelationMap.Length];
         for ( int i = 0; i < jobRelationMap.Length; i++ )
         {
-            relationMap[i] = jobRelationMap[i];
+            this.relationMap[i] = jobRelationMap[i];
         }
     }
-
 
     /// <summary>
     /// 判定結果をJobAIの結果コンテナにコピーするメソッド
@@ -93,7 +91,7 @@ public struct StandardAI
     public void CopyResultToJobContainer(ref UnsafeList<MovementInfo> jobResult)
     {
         // Spanを使用してリストにアクセス
-        Span<MovementInfo> resultsSpan = judgeResult.AsSpan();
+        Span<MovementInfo> resultsSpan = this.judgeResult.AsSpan();
 
         for ( int i = 0; i < resultsSpan.Length && i < jobResult.Length; i++ )
         {
@@ -107,24 +105,25 @@ public struct StandardAI
     public void ExecuteAIDecision()
     {
         // Spanを使用してリストにアクセス
-        Span<CharacterData> charaSpan = CollectionMarshal.AsSpan(characterData);
-        Span<MovementInfo> resultSpan = CollectionMarshal.AsSpan(judgeResult);
+        Span<CharacterData> charaSpan = CollectionMarshal.AsSpan(this.characterData);
+
+        _ = CollectionMarshal.AsSpan(this.judgeResult);
 
         // 各キャラクターについてAI判断を実行
         for ( int index = 0; index < charaSpan.Length; index++ )
         {
             // 結果の構造体を作成
-            MovementInfo resultData = new MovementInfo();
+            MovementInfo resultData = new();
 
             // 現在の行動のステートを数値に変換
             int nowMode = (int)charaSpan[index].liveData.actState;
 
             // 判断時間が経過したかを確認
             // 経過してないなら処理しない
-            if ( nowTime - charaSpan[index].lastJudgeTime < charaSpan[index].brainData[nowMode].judgeInterval )
+            if ( this.nowTime - charaSpan[index].lastJudgeTime < charaSpan[index].brainData[nowMode].judgeInterval )
             {
                 resultData.result = JudgeResult.何もなし;
-                judgeResult[index] = resultData;
+                this.judgeResult[index] = resultData;
                 continue;
             }
 
@@ -170,7 +169,7 @@ public struct StandardAI
                             myData.brainData[nowMode].actCondition[j],
                             myData,
                             charaSpan[i],
-                            teamHate) )
+                            this.teamHate) )
                         {
                             selectMove = j;
 
@@ -194,7 +193,8 @@ public struct StandardAI
             // 最も条件に近いターゲットを確認する
             // 比較用初期値はInvertによって変動
             TargetJudgeData targetJudgeData = myData.brainData[nowMode].actCondition[selectMove].targetCondition;
-            int nowValue = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
+
+            _ = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
             int newTargetHash = 0;
 
             // 状態変更の場合ここで戻る
@@ -205,14 +205,14 @@ public struct StandardAI
                 resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
 
                 // 判断結果を設定
-                judgeResult[index] = resultData;
+                this.judgeResult[index] = resultData;
                 continue;
             }
 
             // それ以外であればターゲットを判断
             else
             {
-                int tIndex = JudgeTargetByCondition(targetJudgeData, charaSpan, myData, teamHate);
+                int tIndex = JudgeTargetByCondition(targetJudgeData, charaSpan, myData, this.teamHate);
                 if ( tIndex >= 0 )
                 {
                     newTargetHash = charaSpan[tIndex].hashCode;
@@ -229,7 +229,6 @@ public struct StandardAI
                 }
             }
 
-
             // ここでターゲット見つかってなければ待機に移行
             if ( newTargetHash == 0 )
             {
@@ -244,7 +243,7 @@ public struct StandardAI
             resultData.targetHash = newTargetHash;
 
             // 判断結果を設定
-            judgeResult[index] = resultData;
+            this.judgeResult[index] = resultData;
         }
     }
 
@@ -269,11 +268,12 @@ public struct StandardAI
                 int invertConditionHP = skipData.isInvert == BitableBool.TRUE ? 1 : 0;
                 // 明示的に条件を組み合わせる
                 int condition1HP = equalConditionHP;
-                int condition2HP = (lessConditionHP != 0) == (invertConditionHP != 0) ? 1 : 0;
+                int condition2HP = lessConditionHP != 0 == (invertConditionHP != 0) ? 1 : 0;
                 if ( condition1HP != 0 || condition2HP != 0 )
                 {
                     return 1;
                 }
+
                 return 0;
 
             case SkipJudgeCondition.自分のMPが一定割合の時:
@@ -283,11 +283,12 @@ public struct StandardAI
                 int invertConditionMP = skipData.isInvert == BitableBool.TRUE ? 1 : 0;
                 // 明示的に条件を組み合わせる
                 int condition1MP = equalConditionMP;
-                int condition2MP = (lessConditionMP != 0) == (invertConditionMP != 0) ? 1 : 0;
+                int condition2MP = lessConditionMP != 0 == (invertConditionMP != 0) ? 1 : 0;
                 if ( condition1MP != 0 || condition2MP != 0 )
                 {
                     return 1;
                 }
+
                 return 0;
 
             default:
@@ -326,7 +327,7 @@ public struct StandardAI
                 }
 
                 // チームのヘイトはint2で確認する。
-                int2 hateKey = new int2((int)myData.liveData.belong, targetHash);
+                int2 hateKey = new((int)myData.liveData.belong, targetHash);
 
                 if ( tHate.ContainsKey(hateKey) )
                 {
@@ -374,6 +375,7 @@ public struct StandardAI
                 {
                     result = targetData.liveData.mpRatio <= condition.actCondition.judgeValue;
                 }
+
                 return result;
 
             case ActJudgeCondition.設定距離に対象がいる時:
@@ -394,6 +396,7 @@ public struct StandardAI
                 {
                     result = distance <= judgeDist;
                 }
+
                 return result;
 
             case ActJudgeCondition.特定の属性で攻撃する対象がいる時:
@@ -407,6 +410,7 @@ public struct StandardAI
                 {
                     result = ((int)targetData.solidData.attackElement & condition.actCondition.judgeValue) == 0;
                 }
+
                 return result;
 
             case ActJudgeCondition.特定の数の敵に狙われている時:
@@ -419,6 +423,7 @@ public struct StandardAI
                 {
                     result = targetData.targetingCount <= condition.actCondition.judgeValue;
                 }
+
                 return result;
 
             default: // 条件なし (0) または未定義の値
@@ -460,7 +465,6 @@ public struct StandardAI
         //    Debug.Log($" 逆{judgeData.isInvert == BitableBool.TRUE} スコア初期{score}");
         //}
 
-
         switch ( condition )
         {
             case TargetSelectCondition.高度:
@@ -473,7 +477,6 @@ public struct StandardAI
                     }
 
                     int height = (int)cData[i].liveData.nowPosition.y;
-
 
                     // 一番高いやつを求める (isInvert == 1)
                     if ( isInvert == 0 )
@@ -497,8 +500,6 @@ public struct StandardAI
                         }
                     }
                 }
-
-
 
                 return index;
 
@@ -532,6 +533,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.HP:
@@ -564,6 +566,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.敵に狙われてる数:
@@ -596,6 +599,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.合計攻撃力:
@@ -628,6 +632,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.合計防御力:
@@ -660,6 +665,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.斬撃攻撃力:
@@ -692,6 +698,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.刺突攻撃力:
@@ -724,6 +731,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.打撃攻撃力:
@@ -756,6 +764,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.炎攻撃力:
@@ -788,6 +797,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.雷攻撃力:
@@ -820,6 +830,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.光攻撃力:
@@ -852,6 +863,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.闇攻撃力:
@@ -884,6 +896,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.斬撃防御力:
@@ -916,6 +929,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.刺突防御力:
@@ -948,6 +962,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.打撃防御力:
@@ -980,6 +995,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.炎防御力:
@@ -1012,6 +1028,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.雷防御力:
@@ -1044,6 +1061,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.光防御力:
@@ -1076,6 +1094,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.闇防御力:
@@ -1108,6 +1127,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 return index;
 
             case TargetSelectCondition.距離:
@@ -1169,10 +1189,10 @@ public struct StandardAI
                     int targetHate = 0;
                     if ( cData[index].personalHate.ContainsKey(targetHash) )
                     {
-                        targetHate += (int)cData[index].personalHate[targetHash];
+                        targetHate += cData[index].personalHate[targetHash];
                     }
                     // チームのヘイトはint2で確認する。
-                    int2 hateKey = new int2((int)cData[index].liveData.belong, targetHash);
+                    int2 hateKey = new((int)cData[index].liveData.belong, targetHash);
                     if ( tHate.ContainsKey(hateKey) )
                     {
                         targetHate += tHate[hateKey];
@@ -1196,6 +1216,7 @@ public struct StandardAI
                         }
                     }
                 }
+
                 break;
 
             default:

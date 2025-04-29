@@ -1,9 +1,7 @@
-using System.ComponentModel;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
-using UnityEngine;
 using static CombatManager;
 
 [BurstCompile]
@@ -23,7 +21,7 @@ public class HateJudgeJob : IJobParallelFor
 
     public void Execute(int index)
     {
-        for ( int i = 0; i < hateEvents.Length; i++ )
+        for ( int i = 0; i < this.hateEvents.Length; i++ )
         {
             if ( true )
             {

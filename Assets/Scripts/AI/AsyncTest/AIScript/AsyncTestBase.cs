@@ -1,5 +1,4 @@
 using UnityEngine;
-using Cysharp.Threading.Tasks;
 
 public class AsyncTestBase : MonoBehaviour
 {
@@ -14,7 +13,7 @@ public class AsyncTestBase : MonoBehaviour
     /// 移動に使用する物理コンポーネント。
     /// </summary>
     [SerializeField]
-    Rigidbody2D rb;
+    private Rigidbody2D rb;
 
     /// <summary>
     /// 何回判断したかを数える。<br></br>
@@ -27,13 +26,13 @@ public class AsyncTestBase : MonoBehaviour
     /// <summary>
     /// 判断間隔を返すプロパティ。
     /// </summary>
-    public float JudgeInterval { get { return status.judgeInterval; } }
+    public float JudgeInterval => this.status.judgeInterval;
 
     /// <summary>
     /// 最後に判断した時の時間。<br></br>
     /// これと今の時間の差で時間経過をはかる。
     /// </summary>
-    float lastJudge = -10000;
+    private float lastJudge = -10000;
 
     /// <summary>
     /// 現在の移動方向。<br></br>
@@ -59,7 +58,7 @@ public class AsyncTestBase : MonoBehaviour
 
         //Debug.Log("テスト開始");
 
-        MoveJudgeAct();
+        this.MoveJudgeAct();
     }
 
     /// <summary>
@@ -70,7 +69,7 @@ public class AsyncTestBase : MonoBehaviour
     protected bool IntervalEndJudge()
     {
         // テスト継続中で、かつ前回の判定から判断間隔以上の時間が経過した場合に真を返す。
-        return GameManager.instance.isTest && ((GameManager.instance.NowTime - lastJudge) > status.judgeInterval);
+        return GameManager.instance.isTest && ((GameManager.instance.NowTime - this.lastJudge) > this.status.judgeInterval);
     }
 
     /// <summary>
@@ -79,15 +78,14 @@ public class AsyncTestBase : MonoBehaviour
     protected void MoveJudgeAct()
     {
         // 50%の確率で左右移動の方向が変わる。
-        moveDirection = (UnityEngine.Random.Range(0, 100) >= 50) ? 1 : -1;
+        this.moveDirection = (UnityEngine.Random.Range(0, 100) >= 50) ? 1 : -1;
 
-        rb.linearVelocityX = moveDirection * status.xSpeed;
+        this.rb.linearVelocityX = this.moveDirection * this.status.xSpeed;
 
         //Debug.Log($"数値：{moveDirection * status.xSpeed} 速度：{rb.linearVelocityX}");
 
-        lastJudge = GameManager.instance.NowTime;
-        judgeCount++;
+        this.lastJudge = GameManager.instance.NowTime;
+        this.judgeCount++;
     }
-
 
 }

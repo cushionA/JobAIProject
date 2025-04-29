@@ -1,4 +1,3 @@
-using System;
 using UnityEngine;
 
 /// <summary>
@@ -13,15 +12,28 @@ public class MyDicTestComponent : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     public void IDSet()
     {
-        data.TestValue = UnityEngine.Random.Range(0, 100);
+        this.data.TestValue = UnityEngine.Random.Range(0, 100);
     }
 
-
 }
-// DicTestDataクラスがない場合のダミー定義
-// 実際の環境ではすでに定義されているものを使用
+
+/// <summary>
+/// 自作コレクションをテストするためのデータ
+/// </summary>
 [System.Serializable]
-public struct DicTestData
+public struct DicTestData : ILogicalDelate
 {
     public int TestValue;
+
+    public bool isLogicalDelate;
+
+    public bool IsLogicalDelate()
+    {
+        return this.isLogicalDelate;
+    }
+
+    public void LogicalDelete()
+    {
+        this.isLogicalDelate = true;
+    }
 }

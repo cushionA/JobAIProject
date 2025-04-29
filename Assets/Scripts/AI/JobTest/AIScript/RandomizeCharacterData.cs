@@ -1,9 +1,7 @@
-using Unity.Collections;
+using System;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
-using System;
-using static JTestAIBase;
-using static JobAITestStatus;
+using static CombatManager;
 
 /// <summary>
 /// CharacterDataのステータスをランダム化するユーティリティクラス
@@ -63,8 +61,8 @@ public static class CharacterDataRandomizer
         data.liveData.currentMp = UnityEngine.Random.Range(0, data.liveData.maxMp + 1);
 
         // HP/MPの割合を更新
-        data.liveData.hpRatio = (int)(((float)data.liveData.currentHp / data.liveData.maxHp) * 100);
-        data.liveData.mpRatio = (int)(((float)data.liveData.currentMp / data.liveData.maxMp) * 100);
+        data.liveData.hpRatio = (int)((float)data.liveData.currentHp / data.liveData.maxHp * 100);
+        data.liveData.mpRatio = (int)((float)data.liveData.currentMp / data.liveData.maxMp * 100);
 
         // 位置をランダム化
         data.liveData.nowPosition = new Vector2(
@@ -104,7 +102,7 @@ public static class CharacterDataRandomizer
                 if ( targetIndex != selfIndex ) // 自分自身には設定しない
                 {
                     int hateValue = UnityEngine.Random.Range(1, 100);
-                    data.personalHate.TryAdd(allCharacters[targetIndex].hashCode, hateValue);
+                    _ = data.personalHate.TryAdd(allCharacters[targetIndex].hashCode, hateValue);
                 }
             }
         }

@@ -1,25 +1,23 @@
-using UnityEngine;
 using Cysharp.Threading.Tasks;
 using System.Threading;
-using System;
 
 public class AsyncAI : AsyncTestBase
 {
     /// <summary>
     /// キャンセルトークン。
     /// </summary>
-    CancellationToken token;
+    private CancellationToken token;
 
     /// <summary>
     /// 初期化して非同期判断ループ開始。
     /// </summary>
-    void Start()
+    private void Start()
     {
         // 初期化
         base.Initialize();
 
         // 待機せずに非同期ループ開始。
-        AsyncJudge().Forget();
+        this.AsyncJudge().Forget();
     }
 
     /// <summary>
@@ -27,23 +25,23 @@ public class AsyncAI : AsyncTestBase
     /// 指定秒数ごとに行動判断をするループを回し続ける。
     /// </summary>
     /// <returns></returns>
-    async UniTaskVoid AsyncJudge()
+    private async UniTaskVoid AsyncJudge()
     {
         // トークン取得
-        token = GameManager.instance.cToken.Token;
+        this.token = GameManager.instance.cToken.Token;
 
         // キャンセルされるまで続ける。
         // トークンをこんな使い方しているのは、トークンを渡すとcancellationToken.Cancel()が例外を投げるから。
         // ＝ 例外処理をしたくないから。
         // もっといい方法があれば教えてください。
-        while ( token.IsCancellationRequested == false )
+        while ( this.token.IsCancellationRequested == false )
         {
             // 判断間隔条件が真になるまで待つ。
             // 公平を期するために同じ判断処理を使う。
-            await UniTask.WaitUntil(() => IntervalEndJudge());
+            await UniTask.WaitUntil(() => this.IntervalEndJudge());
 
             // 行動判断
-            MoveJudgeAct();
+            this.MoveJudgeAct();
         }
     }
 
